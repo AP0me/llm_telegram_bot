@@ -104,10 +104,9 @@ class OpenRouter
     public static function executeToolCalls(array $toolCalls)
     {
         if (empty($toolCalls)) {
-            return;
+            return [];
         }
 
-        // --- Execute tools ---
         $toolResults = [];
         foreach ($toolCalls as $call) {
             $args = json_decode($call['function']['arguments'], true) ?? [];
@@ -130,6 +129,29 @@ class OpenRouter
         return $toolMessages;
     }
 
+    public static function toolList()
+    {
+        return [
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_weather',
+                    'description' => 'Get current weather for a location',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties'  => [
+                            'location' => [
+                                'type'        => 'string',
+                                'description' => 'City name',
+                            ],
+                        ],
+                        'required' => ['location'],
+                    ],
+                ],
+            ],
+        ];
+    }
+
     public static function displayTokens(Generator $generator): void
     {
         $previousType = null;  // track previous type, null means "none yet"
@@ -143,7 +165,9 @@ class OpenRouter
 
             // If the type has changed (and we already had a previous chunk)
             if ($currentType !== $previousType) {
-                echo '<br>switched to ' . $currentType . '<br>';
+                echo "</details>";
+                $currentTypeString = $currentType === 'reasoning' ? 'Reasoning' : 'Content';
+                echo "<details><summary>$currentTypeString</summary>";
             }
 
             echo $chunk['text'];

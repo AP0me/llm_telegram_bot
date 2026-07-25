@@ -4,38 +4,28 @@ namespace App\Http\Controllers;
 
 use App\Services\OpenRouter;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Request;
 
 class LLMController extends Controller
 {
-    public function generate()
+    public function generate(Request $request)
     {
+        $request->validate([
+            'new_user_text' => 'required|string|max:10000'
+        ]);
+        $newUserText = $request->new_user_text;
+
         $originalMessages = [
             ['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.'],
             [
                 'role'    => 'user',
-                'content' => "Reason about this! If you built the world's tallest skyscraper, what would you name it? Please check the weather in New York first.",
+                'content' => $newUserText,
             ],
         ];
         $model = 'deepseek/deepseek-v4-flash';
 
         $firstPayload = OpenRouter::buildChatPayload($model, $originalMessages, [
-            'tools' => [[
-                'type'     => 'function',
-                'function' => [
-                    'name'        => 'get_weather',
-                    'description' => 'Get current weather for a location',
-                    'parameters'  => [
-                        'type'       => 'object',
-                        'properties'  => [
-                            'location' => [
-                                'type'        => 'string',
-                                'description' => 'City name',
-                            ],
-                        ],
-                        'required' => ['location'],
-                    ],
-                ],
-            ]],
+            'tools' => OpenRouter::toolList(),
             'tool_choice' => 'auto',
         ]);
 
@@ -48,12 +38,13 @@ class LLMController extends Controller
 
                 $toolCalls = $gen1->getReturn();
 
-                // --- Build second payload with tool result
-                $secondMessages = array_merge($originalMessages, OpenRouter::executeToolCalls($toolCalls));
-                $secondPayload = OpenRouter::buildChatPayload($model, $secondMessages);
+                if (!empty($toolCalls)) {
+                    $secondMessages = array_merge($originalMessages, OpenRouter::executeToolCalls($toolCalls));
+                    $secondPayload = OpenRouter::buildChatPayload($model, $secondMessages);
 
-                $gen2 = OpenRouter::tokenGenerator($secondPayload);
-                OpenRouter::displayTokens($gen2);
+                    $gen2 = OpenRouter::tokenGenerator($secondPayload);
+                    OpenRouter::displayTokens($gen2);
+                }
             } catch (ConnectionException $e) {
                 report($e);
                 echo "\n\n[Connection error – please try again.]";
