@@ -36,8 +36,6 @@ return [
     ],
 
     'open_router' => [
-        'mcp' => [
-            'token' => env('OPENROUTER_MCP_TOKEN')
-        ]
+        'token' => env('OPENROUTER_TOKEN')
     ],
 ];
