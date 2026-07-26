@@ -7,10 +7,14 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "irazasyed/telegram-bot-sdk": "^3.16",
+        "kstmostofa/laravel-whatsapp": "^1.0",
         "laravel/fortify": "^1.37",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
+        "livewire/flux": "^2.15",
+        "livewire/livewire": "^4.3",
         "mcp/sdk": "^0.7.0"
     },
     "require-dev": {
