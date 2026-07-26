@@ -1,18 +1,24 @@
 <?php
 
+use App\Services\TelegramService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Telegram\Bot\Laravel\Facades\Telegram;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
 Artisan::command('telegram', function() {
+    $offset = DB::table('updates')->max('telegram_update_id')+1;
+
     $updates = Telegram::getUpdates([
         'timeout' => 60,
-        'allowed_updates' => ['message']
+        'allowed_updates' => ['message'],
+        'offset' => $offset
     ]);
+    // dd([$updates, $offset]);
 
     $updatesInsert = [];
     $chatsInsert = [];
@@ -24,7 +30,11 @@ Artisan::command('telegram', function() {
             'telegram_update_id' => $update['update_id'],
         ];
 
-        $message = $update['message'];
+        $message = $update['message'] ?? false;
+        if (!$message) {
+            continue;
+        }
+
         $telegram_chat_id = $message['chat']['id'];
         $username = $message['chat']['username'];
         $text = $message['text'];
@@ -67,5 +77,26 @@ Artisan::command('telegram', function() {
             DB::table('commands')->insertOrIgnore($commandsInsert);
         }
     });
+
+    $unhandled_commands = DB::table('commands')->join('messages', 'commands.telegram_message_id', 'messages.telegram_message_id')->select()->where([
+        'handled' => 0,
+    ])->get();
+
+    DB::transaction(function () use($unhandled_commands) {
+        foreach ($unhandled_commands as $unhandled_command) {
+            Telegram::sendMessage([
+                'chat_id' => $unhandled_command->telegram_chat_id,
+                'text' => TelegramService::handleCommand($unhandled_command),
+            ]);
+        }
+
+        DB::table('commands')->where([
+            'handled' => 0,
+        ])
+        ->update([
+            'handled' => 1,
+        ]);
+    });
+
 });
 
