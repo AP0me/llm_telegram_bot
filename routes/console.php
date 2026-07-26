@@ -30,21 +30,21 @@ Artisan::command('telegram', function() {
         $text = $message['text'];
         $telegram_message_id = $message['message_id'];
 
+        // Collect for 'chats' table
+        $chatsInsert[] = [
+            'username' => $username,
+            'telegram_chat_id' => $telegram_chat_id,
+            'telegram_update_id' => $update['update_id'],
+        ];
+
+        // Collect for 'messages' table
+        $messagesInsert[] = [
+            'text' => $text,
+            'telegram_chat_id' => $telegram_chat_id,
+            'telegram_message_id' => $telegram_message_id,
+        ];
+
         if (substr($text, 0, 1) === '/') {
-            // Collect for 'chats' table
-            $chatsInsert[] = [
-                'username' => $username,
-                'telegram_chat_id' => $telegram_chat_id,
-                'telegram_update_id' => $update['update_id'],
-            ];
-
-            // Collect for 'messages' table
-            $messagesInsert[] = [
-                'text' => $text,
-                'telegram_chat_id' => $telegram_chat_id,
-                'telegram_message_id' => $telegram_message_id,
-            ];
-
             // Collect for 'commands' table
             $commandsInsert[] = [
                 'handled' => 0,
@@ -53,7 +53,7 @@ Artisan::command('telegram', function() {
         }
     }
 
-    DB::transaction(function () {
+    DB::transaction(function () use($updatesInsert, $chatsInsert, $messagesInsert, $commandsInsert) {
         if (!empty($updatesInsert)) {
             DB::table('updates')->insertOrIgnore($updatesInsert);
         }
