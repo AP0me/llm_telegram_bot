@@ -1,3 +1,6 @@
+@extends('app')
+
+@section('body')
 <form method="POST" action="{{ route('register') }}">
     @csrf
 
@@ -36,4 +39,4 @@
 
     <button type="submit">Create Account</button>
 </form>
-
+@endsection

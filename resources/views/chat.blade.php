@@ -1,4 +1,12 @@
+@extends('app')
+
+@section('body')
 <div>
+    <style>
+        #model_output_frame {
+              resize: both;
+        }
+    </style>
     <iframe id="model_output_frame" src=""></iframe>
     <hr>
     <textarea id="new_user_text" rows="10" cols="50" name="new_user_text"></textarea>
@@ -10,3 +18,5 @@
         }
     </script>
 </div>
+@endsection
+

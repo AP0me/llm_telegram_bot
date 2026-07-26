@@ -13,6 +13,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Laravel\Fortify\Actions\RedirectIfTwoFactorAuthenticatable;
 use Laravel\Fortify\Fortify;
+use Laravel\Fortify\Contracts\LogoutResponse;
 
 class FortifyServiceProvider extends ServiceProvider
 {
@@ -21,7 +22,18 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->instance(LogoutResponse::class, new class implements LogoutResponse {
+            public function toResponse($request)
+            {
+                // If it's an API request, return a custom JSON payload
+                if ($request->wantsJson()) {
+                    return response()->json(['message' => 'Logged out successfully']);
+                }
+
+                // For web browsers, redirect to a custom path (e.g., /login)
+                return redirect(route('login'));
+            }
+        });
     }
 
     /**
