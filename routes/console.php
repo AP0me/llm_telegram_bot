@@ -133,7 +133,7 @@ Artisan::command('telegram', function() {
         ]);
     });
 
-    $unanswered_prompts = DB::table('prompts')
+    $unanswered_prompts = db::table('prompts')
         ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
         ->where([
             'answered' => false
@@ -142,7 +142,15 @@ Artisan::command('telegram', function() {
         ->get();
 
 
-    DB::transaction(function () use($unanswered_prompts) {
+    db::transaction(function () use($unanswered_prompts) {
+        DB::table('prompts')
+            ->where([
+                'answered' => false
+            ])
+            ->update([
+                'answered' => true
+            ]);
+
         foreach ($unanswered_prompts as $unanswered_prompt) {
             $originalMessages = [
                 ['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.'],
@@ -160,27 +168,14 @@ Artisan::command('telegram', function() {
 
             try {
                 $gen1 = OpenRouter::tokenGenerator($firstPayload);
-                $buffer = '';
-                foreach ($gen1 as $chunk) {
-                    Telegram::sendMessage([
-                        'chat_id' => $unanswered_prompt->telegram_chat_id,
-                        'text'    => empty($chunk['text']) ? '-' : $chunk['text'],
-                    ]);
-                }
-
-                $toolCalls = $gen1->getReturn();
+                $toolCalls = TelegramService::telegramBufferedSend($gen1, $unanswered_prompt->telegram_chat_id);
 
                 if (!empty($toolCalls)) {
                     $secondMessages = array_merge($originalMessages, OpenRouter::executeToolCalls($toolCalls));
-                    $secondPayload = OpenRouter::buildChatPayload($model, $secondMessages);
+                    $secondPayload  = OpenRouter::buildChatPayload($model, $secondMessages);
 
                     $gen2 = OpenRouter::tokenGenerator($secondPayload);
-                    foreach ($gen2 as $chunk) {
-                        Telegram::sendMessage([
-                            'chat_id' => $unanswered_prompt->telegram_chat_id,
-                            'text'    => empty($chunk['text']) ? '-' : $chunk['text'],
-                        ]);
-                    }
+                    TelegramService::telegramBufferedSend($gen2, $unanswered_prompt->telegram_chat_id);
                 }
             } catch (ConnectionException $e) {
                 report($e);
