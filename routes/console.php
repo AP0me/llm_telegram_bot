@@ -1,9 +1,11 @@
 <?php
 
+use App\Services\OpenRouter;
 use App\Services\TelegramService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Mcp\Exception\ConnectionException;
 use Telegram\Bot\Laravel\Facades\Telegram;
 
 Artisan::command('inspire', function () {
@@ -20,10 +22,25 @@ Artisan::command('telegram', function() {
     ]);
     // dd([$updates, $offset]);
 
+    $llm_sessions = DB::table('llm_sessions')
+        ->join('commands', 'llm_sessions.start_command_id', 'commands.id')
+        ->join('messages', 'commands.telegram_message_id', 'messages.telegram_message_id')
+        ->select()
+        ->where([
+            'end_command_id' => null,
+        ])
+        ->get();
+
+    $llm_sessions_by_telegram_chat_id = [];
+    foreach ($llm_sessions as $llm_session) {
+        $llm_sessions_by_telegram_chat_id[$llm_session->telegram_chat_id] = $llm_session;
+    }
+
     $updatesInsert = [];
     $chatsInsert = [];
     $messagesInsert = [];
     $commandsInsert = [];
+    $promptsInsert = [];
 
     foreach ($updates as $update) {
         $updatesInsert[] = [
@@ -57,18 +74,27 @@ Artisan::command('telegram', function() {
         if (substr($text, 0, 1) === '/') {
             // Collect for 'commands' table
             $commandsInsert[] = [
-                'handled' => 0,
+                'handled' => false,
                 'telegram_message_id' => $telegram_message_id,
+            ];
+        }
+
+        $open_llm_session = $llm_sessions_by_telegram_chat_id[$telegram_chat_id] ?? false;
+        if ($open_llm_session) {
+            $promptsInsert[] = [
+                'answered' => false,
+                'telegram_message_id' => $telegram_message_id,
+                'llm_session_id' => $open_llm_session->id,
             ];
         }
     }
 
-    DB::transaction(function () use($updatesInsert, $chatsInsert, $messagesInsert, $commandsInsert) {
+    DB::transaction(function () use($promptsInsert, $updatesInsert, $chatsInsert, $messagesInsert, $commandsInsert) {
         if (!empty($updatesInsert)) {
             DB::table('updates')->insertOrIgnore($updatesInsert);
         }
         if (!empty($chatsInsert)) {
-            DB::table('chats')->insertOrIgnore($chatsInsert);  // consider insertOrIgnore if duplicates are possible
+            DB::table('chats')->insertOrIgnore($chatsInsert);
         }
         if (!empty($messagesInsert)) {
             DB::table('messages')->insertOrIgnore($messagesInsert);
@@ -76,11 +102,20 @@ Artisan::command('telegram', function() {
         if (!empty($commandsInsert)) {
             DB::table('commands')->insertOrIgnore($commandsInsert);
         }
+        if (!empty($promptsInsert)) {
+            DB::table('prompts')->insertOrIgnore($promptsInsert);
+        }
     });
 
-    $unhandled_commands = DB::table('commands')->join('messages', 'commands.telegram_message_id', 'messages.telegram_message_id')->select()->where([
-        'handled' => 0,
-    ])->get();
+    $unhandled_commands = DB::table('commands')
+        ->join('messages', 'commands.telegram_message_id', 'messages.telegram_message_id')
+        ->select([
+            '*',
+            'commands.id as command_id'
+        ])
+        ->where([
+            'handled' => false,
+        ])->get();
 
     DB::transaction(function () use($unhandled_commands) {
         foreach ($unhandled_commands as $unhandled_command) {
@@ -91,12 +126,70 @@ Artisan::command('telegram', function() {
         }
 
         DB::table('commands')->where([
-            'handled' => 0,
+            'handled' => false,
         ])
         ->update([
-            'handled' => 1,
+            'handled' => true,
         ]);
     });
 
+    $unanswered_prompts = DB::table('prompts')
+        ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
+        ->where([
+            'answered' => false
+        ])
+        ->select()
+        ->get();
+
+
+    DB::transaction(function () use($unanswered_prompts) {
+        foreach ($unanswered_prompts as $unanswered_prompt) {
+            $originalMessages = [
+                ['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.'],
+                [
+                    'role'    => 'user',
+                    'content' => $unanswered_prompt->text,
+                ],
+            ];
+            $model = 'deepseek/deepseek-v4-flash';
+
+            $firstPayload = OpenRouter::buildChatPayload($model, $originalMessages, [
+                'tools' => OpenRouter::toolList(),
+                'tool_choice' => 'auto',
+            ]);
+
+            try {
+                $gen1 = OpenRouter::tokenGenerator($firstPayload);
+                $buffer = '';
+                foreach ($gen1 as $chunk) {
+                    Telegram::sendMessage([
+                        'chat_id' => $unanswered_prompt->telegram_chat_id,
+                        'text'    => empty($chunk['text']) ? '-' : $chunk['text'],
+                    ]);
+                }
+
+                $toolCalls = $gen1->getReturn();
+
+                if (!empty($toolCalls)) {
+                    $secondMessages = array_merge($originalMessages, OpenRouter::executeToolCalls($toolCalls));
+                    $secondPayload = OpenRouter::buildChatPayload($model, $secondMessages);
+
+                    $gen2 = OpenRouter::tokenGenerator($secondPayload);
+                    foreach ($gen2 as $chunk) {
+                        Telegram::sendMessage([
+                            'chat_id' => $unanswered_prompt->telegram_chat_id,
+                            'text'    => empty($chunk['text']) ? '-' : $chunk['text'],
+                        ]);
+                    }
+                }
+            } catch (ConnectionException $e) {
+                report($e);
+                echo "\n\n[Connection error – please try again.]";
+            } catch (\Exception $e) {
+                report($e);
+                echo "\n\n[An unexpected error occurred.]";
+            }
+        }
+    });
 });
 
