@@ -72,20 +72,20 @@ Artisan::command('telegram', function() {
         ];
 
         if (substr($text, 0, 1) === '/') {
-            // Collect for 'commands' table
             $commandsInsert[] = [
                 'handled' => false,
                 'telegram_message_id' => $telegram_message_id,
             ];
         }
-
-        $open_llm_session = $llm_sessions_by_telegram_chat_id[$telegram_chat_id] ?? false;
-        if ($open_llm_session) {
-            $promptsInsert[] = [
-                'answered' => false,
-                'telegram_message_id' => $telegram_message_id,
-                'llm_session_id' => $open_llm_session->id,
-            ];
+        else {
+            $open_llm_session = $llm_sessions_by_telegram_chat_id[$telegram_chat_id] ?? false;
+            if ($open_llm_session) {
+                $promptsInsert[] = [
+                    'answered' => false,
+                    'telegram_message_id' => $telegram_message_id,
+                    'llm_session_id' => $open_llm_session->id,
+                ];
+            }
         }
     }
 
@@ -133,7 +133,7 @@ Artisan::command('telegram', function() {
         ]);
     });
 
-    $unanswered_prompts = db::table('prompts')
+    $unanswered_prompts = DB::table('prompts')
         ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
         ->where([
             'answered' => false
@@ -142,7 +142,7 @@ Artisan::command('telegram', function() {
         ->get();
 
 
-    db::transaction(function () use($unanswered_prompts) {
+    DB::transaction(function () use($unanswered_prompts) {
         DB::table('prompts')
             ->where([
                 'answered' => false
@@ -186,5 +186,5 @@ Artisan::command('telegram', function() {
             }
         }
     });
-});
+}); //->everySecond()->withoutOverlapping();
 

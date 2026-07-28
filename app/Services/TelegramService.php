@@ -10,17 +10,67 @@ class TelegramService
 {
     public static function startCommand(object $command)
     {
-        DB::table('llm_sessions')->insert([
-            'start_command_id' => $command->command_id,
-        ]);
+        DB::transaction(function () use($command) {
+            $telegram_chat_id = DB::table('commands')
+                ->join('messages', 'messages.telegram_message_id', 'commands.telegram_message_id')
+                ->select()
+                ->where([
+                    'commands.id' => $command->command_id,
+                ])
+                ->first('messages.telegram_chat_id')
+                ->telegram_chat_id;
+
+
+            DB::table('llm_sessions')
+                ->join('commands', 'commands.id', 'llm_sessions.start_command_id')
+                ->join('messages', 'messages.telegram_message_id', 'commands.telegram_message_id')
+                ->where([
+                    'messages.telegram_chat_id' => $telegram_chat_id,
+                ])
+                ->update([
+                    'end_command_id' => $command->command_id
+                ]);
+
+            DB::table('llm_sessions')->insert([
+                'start_command_id' => $command->command_id,
+            ]);
+        });
 
         return "Hi, I an AI chatbot, how can I help you?";
+    }
+
+    public static function stopCommand(object $command)
+    {
+        DB::transaction(function () use($command) {
+            $telegram_chat_id = DB::table('commands')
+                ->join('messages', 'messages.telegram_message_id', 'commands.telegram_message_id')
+                ->select()
+                ->where([
+                    'commands.id' => $command->command_id,
+                ])
+                ->first('messages.telegram_chat_id')
+                ->telegram_chat_id;
+
+
+            DB::table('llm_sessions')
+                ->join('commands', 'commands.id', 'llm_sessions.start_command_id')
+                ->join('messages', 'messages.telegram_message_id', 'commands.telegram_message_id')
+                ->where([
+                    'messages.telegram_chat_id' => $telegram_chat_id,
+                ])
+                ->update([
+                    'end_command_id' => $command->command_id
+                ]);
+        });
+
+        return "Bye!";
     }
 
     public static function handleCommand(object $command): string
     {
         $command_functions = [
             'start' => fn() => self::startCommand($command),
+            'stop' => fn() => self::stopCommand($command),
         ];
 
         $command_text = substr($command->text, 1);
