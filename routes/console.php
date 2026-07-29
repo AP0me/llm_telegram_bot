@@ -143,14 +143,6 @@ Artisan::command('telegram', function() {
 
 
     DB::transaction(function () use($unanswered_prompts) {
-        DB::table('prompts')
-            ->where([
-                'answered' => false
-            ])
-            ->update([
-                'answered' => true
-            ]);
-
         foreach ($unanswered_prompts as $unanswered_prompt) {
             $originalMessages = [
                 ['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.'],
@@ -168,14 +160,14 @@ Artisan::command('telegram', function() {
 
             try {
                 $gen1 = OpenRouter::tokenGenerator($firstPayload);
-                $toolCalls = TelegramService::telegramBufferedSend($gen1, $unanswered_prompt->telegram_chat_id);
+                $toolCalls = TelegramService::telegramBufferedSend($gen1, $unanswered_prompt);
 
                 if (!empty($toolCalls)) {
                     $secondMessages = array_merge($originalMessages, OpenRouter::executeToolCalls($toolCalls));
                     $secondPayload  = OpenRouter::buildChatPayload($model, $secondMessages);
 
                     $gen2 = OpenRouter::tokenGenerator($secondPayload);
-                    TelegramService::telegramBufferedSend($gen2, $unanswered_prompt->telegram_chat_id);
+                    TelegramService::telegramBufferedSend($gen2, $unanswered_prompt);
                 }
             } catch (ConnectionException $e) {
                 report($e);
@@ -185,6 +177,14 @@ Artisan::command('telegram', function() {
                 echo "\n\n[An unexpected error occurred.]";
             }
         }
+
+        DB::table('prompts')
+            ->where([
+                'answered' => false
+            ])
+            ->update([
+                'answered' => true
+            ]);
     });
 }); //->everySecond()->withoutOverlapping();
 

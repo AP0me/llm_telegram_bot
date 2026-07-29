@@ -82,14 +82,35 @@ class TelegramService
         return $command_functions[$command_text]($command);
     }
 
-    public static function telegramBufferedSend(Generator $gen, string|int $chatId): mixed
+    public static function telegramBufferedSend(Generator $gen, object $unanswered_prompt): mixed
     {
+        $chatId = $unanswered_prompt->telegram_chat_id;
+        $prompt_id = $unanswered_prompt->id;
         $buffer = '';
+        $reasoning_buffer = '';
+        $thinking_notification_sent = false;
 
         foreach ($gen as $chunk) {
             $text = $chunk['text'] ?? '';
+            $chunk_type = $chunk['type'];
+
+            if ($chunk_type === 'reasoning') {
+                if(!$thinking_notification_sent) {
+                    Telegram::sendMessage([
+                        'chat_id' => $chatId,
+                        'text'    => 'Thinking...',
+                    ]);
+                    $thinking_notification_sent = true;
+                }
+
+                if ($text === '') {
+                    $reasoning_buffer .= $text;
+                }
+                continue;
+            }
+
             if ($text === '') {
-                continue;   // skip empty / no-text chunks
+                continue;
             }
 
             $buffer .= $text;
@@ -102,6 +123,12 @@ class TelegramService
                 ]);
             }
         }
+        DB::table('llm_answers')
+            ->insert([
+                'llm_answer_reasoning' => $reasoning_buffer,
+                'llm_answer' => $buffer,
+                'prompt_id' => $prompt_id,
+            ]);
 
         // Flush whatever is left (a trailing partial sentence, if any)
         if (trim($buffer) !== '') {
