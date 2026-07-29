@@ -32,8 +32,10 @@ Artisan::command('telegram', function() {
         ->get();
 
     $llm_sessions_by_telegram_chat_id = [];
+    $llm_session_ids = [];
     foreach ($llm_sessions as $llm_session) {
         $llm_sessions_by_telegram_chat_id[$llm_session->telegram_chat_id] = $llm_session;
+        $llm_session_ids[] = $llm_session->id;
     }
 
     $updatesInsert = [];
@@ -53,9 +55,13 @@ Artisan::command('telegram', function() {
         }
 
         $telegram_chat_id = $message['chat']['id'];
-        $username = $message['chat']['username'];
-        $text = $message['text'];
+        $username = $message['chat']['username'] ?? false;
+        $text = $message['text'] ?? false;
         $telegram_message_id = $message['message_id'];
+
+        if (!isset($text) && !isset($username)) {
+            continue;
+        }
 
         // Collect for 'chats' table
         $chatsInsert[] = [
@@ -141,16 +147,15 @@ Artisan::command('telegram', function() {
         ->select()
         ->get();
 
-
-    DB::transaction(function () use($unanswered_prompts) {
+    DB::transaction(function () use($llm_session_ids, $unanswered_prompts) {
+        $history_message_by_llmm_session_id = !empty($llm_session_ids) ? getMessagesOfOpenSessions($llm_session_ids) : [];
         foreach ($unanswered_prompts as $unanswered_prompt) {
-            $originalMessages = [
-                ['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.'],
-                [
-                    'role'    => 'user',
-                    'content' => $unanswered_prompt->text,
-                ],
-            ];
+            $session_history = $history_message_by_llmm_session_id[$unanswered_prompt->llm_session_id];
+            $originalMessages = array_merge(
+                [['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.']],
+                $session_history,
+            );
+
             $model = 'deepseek/deepseek-v4-flash';
 
             $firstPayload = OpenRouter::buildChatPayload($model, $originalMessages, [
@@ -188,3 +193,37 @@ Artisan::command('telegram', function() {
     });
 }); //->everySecond()->withoutOverlapping();
 
+function getMessagesOfOpenSessions(array $session_ids): array
+{
+    // 2. Fetch all prompts that occurred after the /start command
+    $prompts = DB::table('prompts')
+        ->whereIn('llm_session_id', [$session_ids])
+        ->select()
+        ->orderBy('created_at')
+        ->get(['id', 'text', 'created_at']);
+
+    // 3. Fetch all LLM answers linked to those prompts
+    $promptIds = $prompts->pluck('id')->all();
+    $answers = DB::table('llm_answers')
+            ->whereIn('prompt_id', $promptIds)
+            ->get(['prompt_id', 'llm_answer'])
+            ->keyBy('prompt_id');
+
+    // 4. Build the message array, alternating user and assistant
+    $messages = [];
+    foreach ($prompts as $prompt) {
+        $messages[$prompt->llm_session_id] = [
+            'role'    => 'user',
+            'content' => $prompt->text,
+        ];
+
+        if (isset($answers[$prompt->id])) {
+            $messages[$prompt->llm_session_id] = [
+                'role'    => 'assistant',
+                'content' => $answers[$prompt->id]->llm_answer,
+            ];
+        }
+    }
+
+    return $messages;
+}
