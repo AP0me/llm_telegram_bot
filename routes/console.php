@@ -59,7 +59,7 @@ Artisan::command('telegram', function() {
         $text = $message['text'] ?? false;
         $telegram_message_id = $message['message_id'];
 
-        if (!isset($text) && !isset($username)) {
+        if (!isset($text) || !isset($username)) {
             continue;
         }
 
@@ -149,6 +149,7 @@ Artisan::command('telegram', function() {
 
     DB::transaction(function () use($llm_session_ids, $unanswered_prompts) {
         $history_message_by_llmm_session_id = !empty($llm_session_ids) ? getMessagesOfOpenSessions($llm_session_ids) : [];
+        $answered_prompt_ids = [];
         foreach ($unanswered_prompts as $unanswered_prompt) {
             $session_history = $history_message_by_llmm_session_id[$unanswered_prompt->llm_session_id];
             $originalMessages = array_merge(
@@ -174,6 +175,8 @@ Artisan::command('telegram', function() {
                     $gen2 = OpenRouter::tokenGenerator($secondPayload);
                     TelegramService::telegramBufferedSend($gen2, $unanswered_prompt);
                 }
+
+                $answered_prompt_ids[] = $unanswered_prompt->id;
             } catch (ConnectionException $e) {
                 report($e);
                 echo "\n\n[Connection error – please try again.]";
@@ -184,6 +187,7 @@ Artisan::command('telegram', function() {
         }
 
         DB::table('prompts')
+            ->whereIn('id', $answered_prompt_ids)
             ->where([
                 'answered' => false
             ])
@@ -197,7 +201,8 @@ function getMessagesOfOpenSessions(array $session_ids): array
 {
     // 2. Fetch all prompts that occurred after the /start command
     $prompts = DB::table('prompts')
-        ->whereIn('llm_session_id', [$session_ids])
+        ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
+        ->whereIn('llm_session_id', $session_ids)
         ->select()
         ->orderBy('created_at')
         ->get(['id', 'text', 'created_at']);
@@ -212,13 +217,13 @@ function getMessagesOfOpenSessions(array $session_ids): array
     // 4. Build the message array, alternating user and assistant
     $messages = [];
     foreach ($prompts as $prompt) {
-        $messages[$prompt->llm_session_id] = [
+        $messages[$prompt->llm_session_id][] = [
             'role'    => 'user',
             'content' => $prompt->text,
         ];
 
         if (isset($answers[$prompt->id])) {
-            $messages[$prompt->llm_session_id] = [
+            $messages[$prompt->llm_session_id][] = [
                 'role'    => 'assistant',
                 'content' => $answers[$prompt->id]->llm_answer,
             ];
