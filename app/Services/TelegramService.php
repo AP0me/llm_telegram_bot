@@ -85,14 +85,19 @@ class TelegramService
     public static function telegramBufferedSend(Generator $gen, object $unanswered_prompt): mixed
     {
         $chatId = $unanswered_prompt->telegram_chat_id;
-        $prompt_id = $unanswered_prompt->id;
+        $prompt_id = $unanswered_prompt->prompt_id;
         $buffer = '';
+        $content_buffer = '';
         $reasoning_buffer = '';
         $thinking_notification_sent = false;
 
         foreach ($gen as $chunk) {
             $text = $chunk['text'] ?? '';
             $chunk_type = $chunk['type'];
+
+            if ($text === '') {
+                continue;
+            }
 
             if ($chunk_type === 'reasoning') {
                 if(!$thinking_notification_sent) {
@@ -104,31 +109,23 @@ class TelegramService
                 }
 
                 if ($text === '') {
-                    $reasoning_buffer .= $text;
+                    continue;
                 }
-                continue;
+                $reasoning_buffer .= $text;
             }
+            else if ($chunk_type === 'content') {
+                $buffer .= $text;
+                $content_buffer .= $text;
+                [$sentences, $buffer] = self::extractSentences($buffer);
 
-            if ($text === '') {
-                continue;
-            }
-
-            $buffer .= $text;
-            [$sentences, $buffer] = self::extractSentences($buffer);
-
-            foreach ($sentences as $sentence) {
-                Telegram::sendMessage([
-                    'chat_id' => $chatId,
-                    'text'    => trim($sentence),
-                ]);
+                foreach ($sentences as $sentence) {
+                    Telegram::sendMessage([
+                        'chat_id' => $chatId,
+                        'text'    => trim($sentence),
+                    ]);
+                }
             }
         }
-        DB::table('llm_answers')
-            ->insert([
-                'llm_answer_reasoning' => $reasoning_buffer,
-                'llm_answer' => $buffer,
-                'prompt_id' => $prompt_id,
-            ]);
 
         // Flush whatever is left (a trailing partial sentence, if any)
         if (trim($buffer) !== '') {
@@ -137,6 +134,13 @@ class TelegramService
                 'text'    => trim($buffer),
             ]);
         }
+
+        DB::table('llm_answers')
+            ->insert([
+                'llm_answer_reasoning' => $reasoning_buffer,
+                'llm_answer' => $content_buffer,
+                'prompt_id' => $prompt_id,
+            ]);
 
         return $gen->getReturn();
     }

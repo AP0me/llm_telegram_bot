@@ -139,19 +139,23 @@ Artisan::command('telegram', function() {
         ]);
     });
 
-    $unanswered_prompts = DB::table('prompts')
-        ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
-        ->where([
-            'answered' => false
-        ])
-        ->select()
-        ->get();
+    DB::transaction(function () use($llm_session_ids) {
+        $unanswered_prompts = DB::table('prompts')
+            ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
+            ->where([
+                'answered' => false
+            ])
+            ->select([
+                '*',
+                'prompts.id as prompt_id'
+            ])
+            ->get();
 
-    DB::transaction(function () use($llm_session_ids, $unanswered_prompts) {
         $history_message_by_llmm_session_id = !empty($llm_session_ids) ? getMessagesOfOpenSessions($llm_session_ids) : [];
         $answered_prompt_ids = [];
         foreach ($unanswered_prompts as $unanswered_prompt) {
             $session_history = $history_message_by_llmm_session_id[$unanswered_prompt->llm_session_id];
+            echo json_encode($session_history);
             $originalMessages = array_merge(
                 [['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.']],
                 $session_history,
@@ -166,6 +170,7 @@ Artisan::command('telegram', function() {
 
             try {
                 $gen1 = OpenRouter::tokenGenerator($firstPayload);
+                $answered_prompt_ids[] = $unanswered_prompt->prompt_id;
                 $toolCalls = TelegramService::telegramBufferedSend($gen1, $unanswered_prompt);
 
                 if (!empty($toolCalls)) {
@@ -176,7 +181,6 @@ Artisan::command('telegram', function() {
                     TelegramService::telegramBufferedSend($gen2, $unanswered_prompt);
                 }
 
-                $answered_prompt_ids[] = $unanswered_prompt->id;
             } catch (ConnectionException $e) {
                 report($e);
                 echo "\n\n[Connection error – please try again.]";
@@ -195,7 +199,9 @@ Artisan::command('telegram', function() {
                 'answered' => true
             ]);
     });
-}); //->everySecond()->withoutOverlapping();
+
+    Artisan::call('telegram');
+});
 
 function getMessagesOfOpenSessions(array $session_ids): array
 {
@@ -203,16 +209,23 @@ function getMessagesOfOpenSessions(array $session_ids): array
     $prompts = DB::table('prompts')
         ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
         ->whereIn('llm_session_id', $session_ids)
-        ->select()
-        ->orderBy('created_at')
+        ->select(['*', 'prompts.id as prompt_id'])
+        ->orderBy('prompt_id')
         ->get(['id', 'text', 'created_at']);
 
     // 3. Fetch all LLM answers linked to those prompts
-    $promptIds = $prompts->pluck('id')->all();
+    $promptIds = $prompts->pluck('prompt_id')->all();
+    echo json_encode($promptIds);
     $answers = DB::table('llm_answers')
             ->whereIn('prompt_id', $promptIds)
-            ->get(['prompt_id', 'llm_answer'])
-            ->keyBy('prompt_id');
+        ->get(['prompt_id', 'llm_answer']);
+
+    $answer_by_prompt_id = [];
+    foreach ($answers as $answer) {
+        $answer_by_prompt_id[$answer->prompt_id] = $answer;
+    }
+    echo json_encode($answer_by_prompt_id);
+
 
     // 4. Build the message array, alternating user and assistant
     $messages = [];
@@ -222,13 +235,14 @@ function getMessagesOfOpenSessions(array $session_ids): array
             'content' => $prompt->text,
         ];
 
-        if (isset($answers[$prompt->id])) {
+        if (isset($answer_by_prompt_id[$prompt->prompt_id])) {
             $messages[$prompt->llm_session_id][] = [
                 'role'    => 'assistant',
-                'content' => $answers[$prompt->id]->llm_answer,
+                'content' => $answer_by_prompt_id[$prompt->prompt_id]->llm_answer,
             ];
         }
     }
+    echo json_encode($messages);
 
     return $messages;
 }
