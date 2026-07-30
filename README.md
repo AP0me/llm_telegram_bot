@@ -1,59 +1,113 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# LLM Telegram Bot
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+[![Ask DeepWiki](https://devin.ai/assets/askdeepwiki.png)](https://deepwiki.com/AP0me/llm_telegram_bot)
 
-## About Laravel
+This project is a sophisticated AI-powered chatbot built on the Laravel framework. It integrates with Telegram to provide an interactive chat experience and uses the OpenRouter service to connect with a variety of Large Language Models (LLMs) like DeepSeek. The application features both a Telegram bot interface and a simple web-based chat UI.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Features
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Telegram Bot Integration:** Leverages the `irazasyed/telegram-bot-sdk` to listen for and respond to messages on Telegram.
+- **LLM Connectivity via OpenRouter:** A dedicated service, `OpenRouter.php`, manages all interactions with the OpenRouter API, making it easy to swap different LLMs.
+- **Streaming Responses:** Believable, real-time responses are streamed token-by-token to both the web UI and the Telegram client.
+- **Stateful Conversation Management:** Chat sessions, prompts, and LLM answers are persistently stored in a database, allowing the bot to maintain context throughout a conversation.
+- **Command Handling:** The bot recognizes commands like `/start` and `/stop` to manage the lifecycle of an LLM chat session.
+- **Web-Based Chat Interface:** A secure, authenticated web UI allows users to interact with the LLM through their browser.
+- **Database-Driven History:** A comprehensive set of database migrations structures the storage of chats, messages, prompts, answers, and LLM sessions.
+- **Authentication:** User registration and login are handled by Laravel Fortify.
+- **LLM Function Calling:** Includes a basic implementation of LLM tool/function calling with a sample `get_weather` function.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Architecture
 
-## Learning Laravel
+The application is a standard Laravel project with a few key components driving the bot's functionality:
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+- **Console Command Polling (`routes/console.php`):** The core of the bot is a long-running Artisan command, `php artisan telegram`. This command continuously polls the Telegram API for new messages.
+- **OpenRouter Service (`app/Services/OpenRouter.php`):** This service is the gateway to the OpenRouter API. It handles building the request payload, making the API call, and processing the streamed response.
+- **Telegram Service (`app/Services/TelegramService.php`):** This service contains the logic for handling bot commands (`/start`, `/stop`) and for buffering and sending the LLM's streamed responses back to the user in complete sentences.
+- **Web Interface (`routes/web.php`, `LLMController.php`, `chat.blade.php`):** Provides a web-based chat experience. The `LLMController` streams the model's output directly into an `<iframe>` on the chat page.
+- **Database Schema:**
+    - `llm_sessions`: Tracks the start and end of a conversation with the bot.
+    - `prompts`: Stores each user message sent during an active LLM session.
+    - `llm_answers`: Stores the corresponding response and reasoning from the AI.
+    - `messages`, `commands`, `chats`: Store raw data from the Telegram API.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Setup and Installation
 
-## Laravel Sponsors
+### Prerequisites
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+- PHP 8.2+
+- Composer
+- Node.js & npm
+- A database (SQLite is configured by default)
+- A Telegram Bot Token
+- An OpenRouter API Token
 
-### Premium Partners
+### Installation Steps
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/ap0me/llm_telegram_bot.git
+    cd llm_telegram_bot
+    ```
 
-## Contributing
+2.  **Install dependencies:**
+    ```bash
+    composer install
+    npm install
+    npm run build
+    ```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+3.  **Configure your environment:**
+    - Copy the example environment file:
+      ```bash
+      cp .env.example .env
+      ```
+    - Generate an application key:
+      ```bash
+      php artisan key:generate
+      ```
+    - Edit your `.env` file and add your credentials:
+      ```env
+      # Database configuration (defaults to a new sqlite file)
+      DB_CONNECTION=sqlite
 
-## Code of Conduct
+      # Telegram Bot Token from BotFather
+      TELEGRAM_BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+      # OpenRouter API Key
+      OPENROUTER_TOKEN=YOUR_OPENROUTER_API_KEY
+      ```
 
-## Security Vulnerabilities
+4.  **Run database migrations:**
+    This will create all the necessary tables for the application, including users, sessions, and the bot's conversation history.
+    ```bash
+    php artisan migrate
+    ```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Usage
 
-## License
+### 1. Start the Telegram Bot
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+To begin listening for messages from Telegram, run the `telegram` Artisan command. This is a long-running process that continuously polls the Telegram API.
+
+```bash
+php artisan telegram
+```
+
+For production environments, it is recommended to run this command with a process manager like Supervisor to ensure it stays active.
+
+### 2. Interact via Telegram
+
+- Find your bot on Telegram.
+- Send `/start` to begin a conversation session.
+- Send messages to chat with the LLM.
+- Send `/stop` to end the current session. The bot will not respond to general messages until you start a new session.
+
+### 3. Use the Web Interface
+
+1.  **Start the local development server:**
+    ```bash
+    php artisan serve
+    ```
+2.  Navigate to `http://127.0.0.1:8000` in your browser.
+3.  Register a new user account or log in.
+4.  You will be redirected to the chat interface where you can interact with the LLM.
