@@ -36,7 +36,7 @@ class TelegramService
             ]);
         });
 
-        return "Hi, I an AI chatbot, how can I help you?";
+        return "Hi, I am AI chatbot, how can I help you?";
     }
 
     public static function stopCommand(object $command)
