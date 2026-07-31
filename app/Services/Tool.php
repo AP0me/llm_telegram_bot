@@ -2,9 +2,6 @@
 
 namespace App\Services;
 
-use Generator;
-use Illuminate\Support\Facades\Http;
-
 class Tool
 {
     public static function executeToolCalls(array $toolCalls)
@@ -50,12 +47,16 @@ class Tool
                         ],
                         'required' => ['location'],
                     ],
+                    'callback' => function (array $args) {
+                        $location = $args['location'];
+                        ToolCallbacks::weather($location);
+                    },
                 ],
             ],
         ];
     }
 
-    public static function run($name, $arguments)
+    public static function run(string $name, array $arguments)
     {
         if (!strlen($name) > 0) {
             return "Error: Tool name is required.";
@@ -63,17 +64,15 @@ class Tool
 
         $availableTools = [];
         foreach (self::list() as $tool) {
-            $availableTools[$tool['function']['name']] = $tool['function']['parameters'] ?? [];
+            $availableTools[$tool['function']['name']] = $tool['function'] ?? [];
         }
 
         if (!isset($availableTools[$name])) {
             return "Error: Unknown tool $name";
         }
 
-        // Get the JSON Schema for the tool's parameters
-        $schema = $availableTools[$name];
+        $schema = $availableTools[$name]['parameters'];
 
-        // Validate arguments against the schema
         if (!empty($schema)) {
             $errors = self::validateSchema($arguments, $schema);
             if (!empty($errors)) {
@@ -81,12 +80,8 @@ class Tool
             }
         }
 
-        // ---------------------------------------------
-        // Validation passed – execute the actual tool.
-        // Placeholder: replace with real dispatch logic.
-        // Example: return self::executeToolFunction($name, $arguments);
-        // ---------------------------------------------
-        return ''; // Replace with actual tool response
+        $callback = $availableTools[$name]['callback'];
+        return $callback($arguments);
     }
 
     /**

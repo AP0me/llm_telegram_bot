@@ -1,4 +1,4 @@
-<?php<?php
+<?php
 
 use App\Services\LLMSession;
 use App\Services\OpenRouter;
@@ -37,6 +37,7 @@ Artisan::command('telegram', function () {
             $this->info("Telegram timed out (attempt {$retryCount}), retrying in {$retryDelay}s...");
             sleep($retryDelay);
             $retryDelay = min($retryDelay * 2, 30);
+            $retryCount++;
             continue;
         }
         catch (\Throwable $e) {
