@@ -142,7 +142,10 @@ class TelegramService
                 'prompt_id' => $prompt_id,
             ]);
 
-        return $gen->getReturn();
+        return [
+            'content_buffer' => $content_buffer,
+            'tool_calls' => $gen->getReturn()
+        ];
     }
 
     public static function extractSentences(string $buffer): array

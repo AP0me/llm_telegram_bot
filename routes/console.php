@@ -56,8 +56,10 @@ Artisan::command('telegram', function () {
         ->get();
 
     $llm_sessions_by_telegram_chat_id = [];
+    $llm_session_ids = [];
     foreach ($llm_sessions as $llm_session) {
         $llm_sessions_by_telegram_chat_id[$llm_session->telegram_chat_id] = $llm_session;
+        $llm_session_ids[] = $llm_session->id;
     }
 
     $updatesInsert = [];
@@ -161,7 +163,7 @@ Artisan::command('telegram', function () {
         ]);
     });
 
-    DB::transaction(function () {
+    DB::transaction(function () use ($llm_session_ids) {
         $unanswered_prompts = DB::table('prompts')
             ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
             ->where([
@@ -174,17 +176,18 @@ Artisan::command('telegram', function () {
             ->get();
 
         $answered_prompt_ids = [];
+        $history_message_by_llm_session_id = !empty($llm_session_ids) ? LLMSession::getMessagesOfOpenSessions($llm_session_ids) : [];
         foreach ($unanswered_prompts as $unanswered_prompt) {
             $model = 'deepseek/deepseek-v4-flash';
             $answered_prompt_ids[] = $unanswered_prompt->prompt_id;
 
-            $toolCalls = [];
+            $tool_calls = [];
             while(1) {
                 try {
                     $session_messages = array_merge(
                         [['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.']],
-                        LLMSession::getMessagesOfOpenSessions([$unanswered_prompt->llm_session_id])[$unanswered_prompt->llm_session_id],
-                        Tool::executeToolCalls($toolCalls),
+                        $history_message_by_llm_session_id[$unanswered_prompt->llm_session_id] ?? [],
+                        Tool::executeToolCalls($tool_calls),
                     );
 
                     $payload = OpenRouter::buildChatPayload(
@@ -196,20 +199,25 @@ Artisan::command('telegram', function () {
                         ]
                     );
 
-                    $toolCalls = TelegramService::telegramBufferedSend(
+                    $generated_info = TelegramService::telegramBufferedSend(
                         OpenRouter::tokenGenerator($payload),
                         $unanswered_prompt
                     );
+                    $tool_calls = $generated_info['tool_calls'];
+                    $content_buffer = $generated_info['content_buffer'];
 
-                    echo "\n\n";
-                    echo json_encode($session_messages, JSON_PRETTY_PRINT);
-                    if (empty($toolCalls)) { break; }
+                    // Ghost adding the llm response in order to avoid fetching from DB.
+                    $history_message_by_llm_session_id[$unanswered_prompt->llm_session_id][] = [
+                        'role'    => 'assistant',
+                        'content' => $content_buffer,
+                    ];
+                    if (empty($tool_calls)) { break; }
                 } catch (ConnectionException $e) {
                     report($e);
                     echo "\n\n[Connection error – please try again.]";
                 } catch (\Exception $e) {
                     report($e);
-                    echo "\n\n[An unexpected error occurred.]";
+                    echo "\n\n[An unexpected error occurred.] {json_encode($e)}";
                 }
             }
         }
