@@ -20,8 +20,7 @@ Artisan::command('telegram', function () {
 
     $updates = [];
     $retryCount = 0;
-    $retryDelay = 1;
-    $timeout = 60 * 3;
+    $timeout = 60;
 
     while ($retryCount < 5) {
         try {
@@ -31,13 +30,12 @@ Artisan::command('telegram', function () {
                 'offset'          => $offset,
             ]);
 
-            $timeout = max(($timeout ?? 1) * 2, 60 * 3);
+            $timeout = 60;
             $retryCount = 0;
             break;
         }
         catch (\Telegram\Bot\Exceptions\TelegramSDKException $e) {
-            $this->info("Telegram timed out {json_encode($e)} (attempt {$retryCount}), retrying in {$retryDelay}s...");
-            $retryDelay = min($retryDelay * 2, 30);
+            $this->info("Telegram timed out (attempt {$retryCount}), retrying immediately...");
             $retryCount++;
             $timeout = 0;
             continue;
