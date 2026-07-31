@@ -1,7 +1,9 @@
 <?php
 
+use App\Services\LLMSession;
 use App\Services\OpenRouter;
 use App\Services\TelegramService;
+use App\Services\Tool;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -12,15 +14,35 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('telegram', function() {
-    $offset = DB::table('updates')->max('telegram_update_id')+1;
+Artisan::command('telegram', function () {
+    $offset = DB::table('updates')->max('telegram_update_id') + 1;
 
-    $updates = Telegram::getUpdates([
-        'timeout' => 60,
-        'allowed_updates' => ['message'],
-        'offset' => $offset
-    ]);
-    // dd([$updates, $offset]);
+    $updates = [];
+    $retryCount = 0;
+    $retryDelay = 1;
+
+    while ($retryCount < 5) {
+        try {
+            $updates = Telegram::getUpdates([
+                'timeout'         => 60,
+                'allowed_updates' => ['message'],
+                'offset'          => $offset,
+            ]);
+
+            $retryCount = 0;
+            break;
+        }
+        catch (\Telegram\Bot\Exceptions\TelegramSDKException $e) {
+            $this->warn("Telegram timed out (attempt {$retryCount}), retrying in {$retryDelay}s...");
+            sleep($retryDelay);
+            $retryDelay = min($retryDelay * 2, 30);
+            continue;
+        }
+        catch (\Throwable $e) {
+            $this->error('Unexpected error: ' . $e->getMessage());
+            throw $e;
+        }
+    }
 
     $llm_sessions = DB::table('llm_sessions')
         ->join('commands', 'llm_sessions.start_command_id', 'commands.id')
@@ -151,42 +173,48 @@ Artisan::command('telegram', function() {
             ])
             ->get();
 
-        $history_message_by_llmm_session_id = !empty($llm_session_ids) ? getMessagesOfOpenSessions($llm_session_ids) : [];
+        $history_message_by_llmm_session_id = !empty($llm_session_ids) ? LLMSession::getMessagesOfOpenSessions($llm_session_ids) : [];
         $answered_prompt_ids = [];
         foreach ($unanswered_prompts as $unanswered_prompt) {
             $session_history = $history_message_by_llmm_session_id[$unanswered_prompt->llm_session_id];
-            echo json_encode($session_history);
-            $originalMessages = array_merge(
+            $session_messages = array_merge(
                 [['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.']],
                 $session_history,
             );
 
             $model = 'deepseek/deepseek-v4-flash';
+            $answered_prompt_ids[] = $unanswered_prompt->prompt_id;
 
-            $firstPayload = OpenRouter::buildChatPayload($model, $originalMessages, [
-                'tools' => OpenRouter::toolList(),
-                'tool_choice' => 'auto',
-            ]);
+            $toolCalls = [];
+            while(1) {
+                try {
+                    $session_messages = array_merge(
+                        $session_messages,
+                        Tool::executeToolCalls($toolCalls)
+                    );
 
-            try {
-                $gen1 = OpenRouter::tokenGenerator($firstPayload);
-                $answered_prompt_ids[] = $unanswered_prompt->prompt_id;
-                $toolCalls = TelegramService::telegramBufferedSend($gen1, $unanswered_prompt);
+                    $firstPayload = OpenRouter::buildChatPayload(
+                        $model,
+                        $session_messages,
+                        [
+                            'tools' => Tool::list(),
+                            'tool_choice' => 'auto',
+                        ]
+                    );
 
-                if (!empty($toolCalls)) {
-                    $secondMessages = array_merge($originalMessages, OpenRouter::executeToolCalls($toolCalls));
-                    $secondPayload  = OpenRouter::buildChatPayload($model, $secondMessages);
+                    $toolCalls = TelegramService::telegramBufferedSend(
+                        OpenRouter::tokenGenerator($firstPayload),
+                        $unanswered_prompt
+                    );
 
-                    $gen2 = OpenRouter::tokenGenerator($secondPayload);
-                    TelegramService::telegramBufferedSend($gen2, $unanswered_prompt);
+                    if (empty($toolCalls)) { break; }
+                } catch (ConnectionException $e) {
+                    report($e);
+                    echo "\n\n[Connection error – please try again.]";
+                } catch (\Exception $e) {
+                    report($e);
+                    echo "\n\n[An unexpected error occurred.]";
                 }
-
-            } catch (ConnectionException $e) {
-                report($e);
-                echo "\n\n[Connection error – please try again.]";
-            } catch (\Exception $e) {
-                report($e);
-                echo "\n\n[An unexpected error occurred.]";
             }
         }
 
@@ -203,46 +231,3 @@ Artisan::command('telegram', function() {
     Artisan::call('telegram');
 });
 
-function getMessagesOfOpenSessions(array $session_ids): array
-{
-    // 2. Fetch all prompts that occurred after the /start command
-    $prompts = DB::table('prompts')
-        ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
-        ->whereIn('llm_session_id', $session_ids)
-        ->select(['*', 'prompts.id as prompt_id'])
-        ->orderBy('prompt_id')
-        ->get(['id', 'text', 'created_at']);
-
-    // 3. Fetch all LLM answers linked to those prompts
-    $promptIds = $prompts->pluck('prompt_id')->all();
-    echo json_encode($promptIds);
-    $answers = DB::table('llm_answers')
-            ->whereIn('prompt_id', $promptIds)
-        ->get(['prompt_id', 'llm_answer']);
-
-    $answer_by_prompt_id = [];
-    foreach ($answers as $answer) {
-        $answer_by_prompt_id[$answer->prompt_id] = $answer;
-    }
-    echo json_encode($answer_by_prompt_id);
-
-
-    // 4. Build the message array, alternating user and assistant
-    $messages = [];
-    foreach ($prompts as $prompt) {
-        $messages[$prompt->llm_session_id][] = [
-            'role'    => 'user',
-            'content' => $prompt->text,
-        ];
-
-        if (isset($answer_by_prompt_id[$prompt->prompt_id])) {
-            $messages[$prompt->llm_session_id][] = [
-                'role'    => 'assistant',
-                'content' => $answer_by_prompt_id[$prompt->prompt_id]->llm_answer,
-            ];
-        }
-    }
-    echo json_encode($messages);
-
-    return $messages;
-}

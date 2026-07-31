@@ -101,57 +101,6 @@ class OpenRouter
         return $payload;
     }
 
-    public static function executeToolCalls(array $toolCalls)
-    {
-        if (empty($toolCalls)) {
-            return [];
-        }
-
-        $toolResults = [];
-        foreach ($toolCalls as $call) {
-            $args = json_decode($call['function']['arguments'], true) ?? [];
-            $result = 'The weather in ' . ($args['location'] ?? 'Unknown') . ' is 72°F and Sunny.';
-            $toolResults[] = [
-                'tool_call_id' => $call['id'],
-                'content'      => $result,
-            ];
-        }
-
-        $toolMessages = [];
-        foreach ($toolResults as $tr) {
-            $toolMessages[] = [
-                'role'         => 'tool',
-                'tool_call_id' => $tr['tool_call_id'],
-                'content'      => $tr['content'],
-            ];
-        }
-
-        return $toolMessages;
-    }
-
-    public static function toolList()
-    {
-        return [
-            [
-                'type'     => 'function',
-                'function' => [
-                    'name'        => 'get_weather',
-                    'description' => 'Get current weather for a location',
-                    'parameters'  => [
-                        'type'       => 'object',
-                        'properties'  => [
-                            'location' => [
-                                'type'        => 'string',
-                                'description' => 'City name',
-                            ],
-                        ],
-                        'required' => ['location'],
-                    ],
-                ],
-            ],
-        ];
-    }
-
     public static function displayTokens(Generator $generator): void
     {
         $previousType = null;  // track previous type, null means "none yet"
