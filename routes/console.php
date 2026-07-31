@@ -21,23 +21,25 @@ Artisan::command('telegram', function () {
     $updates = [];
     $retryCount = 0;
     $retryDelay = 1;
+    $timeout = 60 * 3;
 
     while ($retryCount < 5) {
         try {
             $updates = Telegram::getUpdates([
-                'timeout'         => 60,
+                'timeout'         => $timeout,
                 'allowed_updates' => ['message'],
                 'offset'          => $offset,
             ]);
 
+            $timeout = max(($timeout ?? 1) * 2, 60 * 3);
             $retryCount = 0;
             break;
         }
         catch (\Telegram\Bot\Exceptions\TelegramSDKException $e) {
-            $this->info("Telegram timed out (attempt {$retryCount}), retrying in {$retryDelay}s...");
-            sleep($retryDelay);
+            $this->info("Telegram timed out {json_encode($e)} (attempt {$retryCount}), retrying in {$retryDelay}s...");
             $retryDelay = min($retryDelay * 2, 30);
             $retryCount++;
+            $timeout = 0;
             continue;
         }
         catch (\Throwable $e) {
@@ -56,10 +58,8 @@ Artisan::command('telegram', function () {
         ->get();
 
     $llm_sessions_by_telegram_chat_id = [];
-    $llm_session_ids = [];
     foreach ($llm_sessions as $llm_session) {
         $llm_sessions_by_telegram_chat_id[$llm_session->telegram_chat_id] = $llm_session;
-        $llm_session_ids[] = $llm_session->id;
     }
 
     $updatesInsert = [];
@@ -163,7 +163,7 @@ Artisan::command('telegram', function () {
         ]);
     });
 
-    DB::transaction(function () use($llm_session_ids) {
+    DB::transaction(function () {
         $unanswered_prompts = DB::table('prompts')
             ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
             ->where([
@@ -175,15 +175,8 @@ Artisan::command('telegram', function () {
             ])
             ->get();
 
-        $history_message_by_llmm_session_id = !empty($llm_session_ids) ? LLMSession::getMessagesOfOpenSessions($llm_session_ids) : [];
         $answered_prompt_ids = [];
         foreach ($unanswered_prompts as $unanswered_prompt) {
-            $session_history = $history_message_by_llmm_session_id[$unanswered_prompt->llm_session_id];
-            $session_messages = array_merge(
-                [['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.']],
-                $session_history,
-            );
-
             $model = 'deepseek/deepseek-v4-flash';
             $answered_prompt_ids[] = $unanswered_prompt->prompt_id;
 
@@ -191,11 +184,12 @@ Artisan::command('telegram', function () {
             while(1) {
                 try {
                     $session_messages = array_merge(
-                        $session_messages,
-                        Tool::executeToolCalls($toolCalls)
+                        [['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.']],
+                        LLMSession::getMessagesOfOpenSessions([$unanswered_prompt->llm_session_id])[$unanswered_prompt->llm_session_id],
+                        Tool::executeToolCalls($toolCalls),
                     );
 
-                    $firstPayload = OpenRouter::buildChatPayload(
+                    $payload = OpenRouter::buildChatPayload(
                         $model,
                         $session_messages,
                         [
@@ -205,10 +199,12 @@ Artisan::command('telegram', function () {
                     );
 
                     $toolCalls = TelegramService::telegramBufferedSend(
-                        OpenRouter::tokenGenerator($firstPayload),
+                        OpenRouter::tokenGenerator($payload),
                         $unanswered_prompt
                     );
 
+                    echo "\n\n";
+                    echo json_encode($session_messages, JSON_PRETTY_PRINT);
                     if (empty($toolCalls)) { break; }
                 } catch (ConnectionException $e) {
                     report($e);

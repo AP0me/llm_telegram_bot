@@ -47,9 +47,9 @@ class Tool
                         ],
                         'required' => ['location'],
                     ],
-                    'callback' => function (array $args) {
+                    'callback' => function (array $args): string {
                         $location = $args['location'];
-                        ToolCallbacks::weather($location);
+                        return ToolCallbacks::weather($location);
                     },
                 ],
             ],
@@ -80,8 +80,16 @@ class Tool
             }
         }
 
-        $callback = $availableTools[$name]['callback'];
-        return $callback($arguments);
+        $tool_return = $availableTools[$name]['callback']($arguments);
+        if (!is_string($tool_return)) {
+            return sprintf(
+                'Error: Tool "%s" must return a string, got %s.',
+                $name,
+                gettype($tool_return)
+            );
+        }
+
+        return $tool_return;
     }
 
     /**
