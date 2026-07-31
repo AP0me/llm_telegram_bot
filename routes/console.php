@@ -1,4 +1,4 @@
-<?php
+<?php<?php
 
 use App\Services\LLMSession;
 use App\Services\OpenRouter;
@@ -7,6 +7,7 @@ use App\Services\Tool;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schedule;
 use Mcp\Exception\ConnectionException;
 use Telegram\Bot\Laravel\Facades\Telegram;
 
@@ -33,13 +34,13 @@ Artisan::command('telegram', function () {
             break;
         }
         catch (\Telegram\Bot\Exceptions\TelegramSDKException $e) {
-            $this->warn("Telegram timed out (attempt {$retryCount}), retrying in {$retryDelay}s...");
+            $this->info("Telegram timed out (attempt {$retryCount}), retrying in {$retryDelay}s...");
             sleep($retryDelay);
             $retryDelay = min($retryDelay * 2, 30);
             continue;
         }
         catch (\Throwable $e) {
-            $this->error('Unexpected error: ' . $e->getMessage());
+            $this->info('Unexpected error: ' . $e->getMessage());
             throw $e;
         }
     }
@@ -227,7 +228,7 @@ Artisan::command('telegram', function () {
                 'answered' => true
             ]);
     });
-
-    Artisan::call('telegram');
 });
 
+
+Schedule::command('telegram')->everySecond()->withoutOverlapping(3600);
