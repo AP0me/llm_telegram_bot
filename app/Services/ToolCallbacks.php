@@ -11,6 +11,11 @@ class ToolCallbacks
         return "Weather is sunny in $location";
     }
 
+    public static function dateTimeNow(): string
+    {
+        return date('Y-m-d H:i:s');
+    }
+
     /**
      * Fetch all available time slots that can fit an appointment
      * of the given duration, ordered earliest to latest.

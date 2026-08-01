@@ -78,6 +78,20 @@ class Tool
             [
                 'type'     => 'function',
                 'function' => [
+                    'name'        => 'datetime_now',
+                    'description' => 'Get datetime right now',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties'  => [],
+                    ],
+                    'callback' => function (array $args): string {
+                        return ToolCallbacks::dateTimeNow();
+                    },
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
                     'name'        => 'get_available_slots',
                     'description' => 'Fetch all available time slots that can accommodate an appointment of the given duration. Results are ordered from earliest to latest.',
                     'parameters'  => [

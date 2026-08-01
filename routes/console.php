@@ -202,6 +202,10 @@ Artisan::command('telegram', function () {
                             ],
                             [
                                 'role' => 'system',
+                                'content' => 'If a tool call errors, stop the chain of tool calls and tell the user what went wrong.'
+                            ],
+                            [
+                                'role' => 'system',
                                 'content' => 'Separate the output with END_MESSAGE each section of the output separated in this way, will be a separate telegram message.'
                             ],
                         ],
