@@ -2,7 +2,7 @@
 
 [![Ask DeepWiki](https://devin.ai/assets/askdeepwiki.png)](https://deepwiki.com/AP0me/llm_telegram_bot)
 
-This project is a sophisticated AI-powered chatbot built on the Laravel framework. It integrates with Telegram to provide an interactive chat experience and uses the OpenRouter service to connect with a variety of Large Language Models (LLMs) like DeepSeek. The application features both a Telegram bot interface and a simple web-based chat UI.
+This project is a sophisticated AI-powered chatbot for automated appointment booking built on the Laravel framework. It integrates with Telegram to provide an interactive chat experience and uses the OpenRouter service to connect with a variety of Large Language Models (LLMs) like DeepSeek. The application features both a Telegram bot interface and a simple web-based chat UI.
 
 ## Features
 
