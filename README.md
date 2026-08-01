@@ -1,6 +1,6 @@
 # LLM Telegram Bot
 
-This project is a sophisticated AI-powered chatbot for automated appointment booking built on the Laravel framework. It integrates with Telegram to provide an interactive chat experience and uses the OpenRouter service to connect with a variety of Large Language Models (LLMs) like DeepSeek.
+This project is a AI-powered chatbot for automated appointment booking built on the Laravel framework. It integrates with Telegram to provide an interactive chat experience and uses the OpenRouter service to connect with a variety of Large Language Models (LLMs) like DeepSeek.
 
 ## Features
 
