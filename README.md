@@ -14,7 +14,7 @@ This project is a sophisticated AI-powered chatbot for automated appointment boo
 - **Web-Based Chat Interface:** A secure, authenticated web UI allows users to interact with the LLM through their browser.
 - **Database-Driven History:** A comprehensive set of database migrations structures the storage of chats, messages, prompts, answers, and LLM sessions.
 - **Authentication:** User registration and login are handled by Laravel Fortify.
-- **LLM Function Calling:** Includes a basic implementation of LLM tool/function calling with a sample `get_weather` function.
+- **LLM Function Calling:** Includes a basic implementation of LLM tool/function calling with a sample `book_appointment` function.
 
 ## Architecture
 
