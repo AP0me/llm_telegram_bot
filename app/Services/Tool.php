@@ -2,15 +2,19 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\DB;
+
 class Tool
 {
-    public static function executeToolCalls(array $toolCalls)
+    public static function executeToolCalls(array $toolCalls): array
     {
         if (empty($toolCalls)) {
             return [];
         }
 
         $toolMessages = [];
+        $updates = []; // collect data for mass update
+
         foreach ($toolCalls as $call) {
             $id      = $call['id'] ?? null;
             $name    = $call['function']['name'] ?? null;
@@ -24,32 +28,112 @@ class Tool
                 'tool_call_id' => $id,
                 'content'      => $content,
             ];
+
+            $updates[] = [
+                'id'       => $id,
+                'response' => $content,
+            ];
         }
 
+        self::massUpdateToolCalls($updates);
         return $toolMessages;
+    }
+
+    protected static function massUpdateToolCalls(array $updates): void
+    {
+        DB::transaction(function () use ($updates) {
+            foreach ($updates as $update) {
+                DB::table('tool_calls')->where('id', $update['id'])
+                    ->update([
+                        'response' => $update['response'],
+                    ]);
+            }
+        });
     }
 
     public static function list()
     {
         return [
+            // [
+            //     'type'     => 'function',
+            //     'function' => [
+            //         'name'        => 'get_weather',
+            //         'description' => 'Get current weather for a location',
+            //         'parameters'  => [
+            //             'type'       => 'object',
+            //             'properties'  => [
+            //                 'location' => [
+            //                     'type'        => 'string',
+            //                     'description' => 'City name',
+            //                 ],
+            //             ],
+            //             'required' => ['location'],
+            //         ],
+            //         'callback' => function (array $args): string {
+            //             $location = $args['location'];
+            //             return ToolCallbacks::weather($location);
+            //         },
+            //     ],
+            // ],
             [
                 'type'     => 'function',
                 'function' => [
-                    'name'        => 'get_weather',
-                    'description' => 'Get current weather for a location',
+                    'name'        => 'get_available_slots',
+                    'description' => 'Fetch all available time slots that can accommodate an appointment of the given duration. Results are ordered from earliest to latest.',
                     'parameters'  => [
                         'type'       => 'object',
                         'properties'  => [
-                            'location' => [
+                            'duration_minutes' => [
+                                'type'        => 'integer',
+                                'description' => 'Duration of the appointment in minutes.',
+                            ],
+                            'date' => [
                                 'type'        => 'string',
-                                'description' => 'City name',
+                                'description' => 'Date to check (YYYY-MM-DD). If omitted, today\'s date is used.',
                             ],
                         ],
-                        'required' => ['location'],
+                        'required' => ['duration_minutes'],
                     ],
                     'callback' => function (array $args): string {
-                        $location = $args['location'];
-                        return ToolCallbacks::weather($location);
+                        $date = $args['date'] ?? date('YYYY-MM-DD');
+                        $duration_minutes = $args['duration_minutes'];
+                        return ToolCallbacks::getAvailableSlots($date, $duration_minutes);
+                    },
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'book_appointment',
+                    'description' => 'Create a new appointment in a previously identified time slot.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties'  => [
+                            'start_time' => [
+                                'type'        => 'string',
+                                'description' => 'Start time of the slot (ISO 8601 datetime, e.g. 2026-07-31T14:00:00).',
+                            ],
+                            'duration_minutes' => [
+                                'type'        => 'integer',
+                                'description' => 'Duration of the appointment in minutes (must match the slot).',
+                            ],
+                            'title' => [
+                                'type'        => 'string',
+                                'description' => 'Title or brief description of the appointment.',
+                            ],
+                            'customer_name' => [
+                                'type'        => 'string',
+                                'description' => 'Name of the client or customer.',
+                            ],
+                        ],
+                        'required' => ['start_time', 'duration_minutes', 'title', 'customer_name'],
+                    ],
+                    'callback' => function (array $args): string {
+                        $start_time = $args['start_time'];
+                        $duration_minutes = $args['duration_minutes'];
+                        $title = $args['title'];
+                        $customer_name = $args['customer_name'];
+                        return ToolCallbacks::bookAppointment($start_time, $duration_minutes, $title, $customer_name);
                     },
                 ],
             ],

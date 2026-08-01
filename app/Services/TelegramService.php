@@ -135,16 +135,32 @@ class TelegramService
             ]);
         }
 
-        DB::table('llm_answers')
+        $llm_answer_id = DB::table('llm_answers')
             ->insert([
                 'llm_answer_reasoning' => $reasoning_buffer,
                 'llm_answer' => $content_buffer,
                 'prompt_id' => $prompt_id,
             ]);
 
+        $tool_calls = $gen->getReturn();
+        $tool_call_inserts = [];
+        foreach ($tool_calls as $tool_call) {
+            $tool_call_inserts[] = [
+                'name' => $tool_call['function']['name'],
+                'tool_call_id' => $tool_call['id'],
+                'llm_answer_id' => $llm_answer_id,
+                'response' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+
+        DB::table('tool_calls')
+            ->insert($tool_call_inserts);
+
         return [
             'content_buffer' => $content_buffer,
-            'tool_calls' => $gen->getReturn()
+            'tool_calls' => $tool_calls,
         ];
     }
 
@@ -153,16 +169,21 @@ class TelegramService
         $sentences = [];
         $remaining = $buffer;
 
-        // Match complete sentences: text ending with .!? plus optional trailing whitespace
-        if (preg_match_all('/[^.!?]+[.!?]+(?:\s+|$)/u', $buffer, $matches, PREG_OFFSET_CAPTURE)) {
-            foreach ($matches[0] as $match) {
-                $sentences[] = $match[0];
+        // Check if the buffer contains END_SENTENCE markers
+        if (str_contains($buffer, 'END_MESSAGE')) {
+            // Split the buffer by END_SENTENCE
+            $parts = explode('END_MESSAGE', $buffer);
+
+            // Process all parts except the last one (which might be incomplete)
+            for ($i = 0; $i < count($parts) - 1; $i++) {
+                $sentence = trim($parts[$i]);
+                if (!empty($sentence)) {
+                    $sentences[] = $sentence;
+                }
             }
 
-            // Where does the last complete sentence end?
-            $lastMatch = end($matches[0]);
-            $lastEnd = $lastMatch[1] + strlen($lastMatch[0]);
-            $remaining = substr($buffer, $lastEnd);
+            // The last part is the remaining incomplete sentence
+            $remaining = $parts[count($parts) - 1];
         }
 
         return [$sentences, $remaining];

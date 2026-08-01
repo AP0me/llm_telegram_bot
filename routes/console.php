@@ -12,9 +12,15 @@ use Mcp\Exception\ConnectionException;
 use Telegram\Bot\Laravel\Facades\Telegram;
 
 Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
-
+    DB::table('appointments')->insertGetId([
+        'start_time'       => '2026-07-31T14:00:00',
+        'duration_minutes' => 10,
+        'title'            => '',
+        'customer_name'    => '',
+        'created_at'       => now(),
+        'updated_at'       => now(),
+    ]);
+});
 Artisan::command('telegram', function () {
     $offset = DB::table('updates')->max('telegram_update_id') + 1;
 
@@ -185,10 +191,25 @@ Artisan::command('telegram', function () {
             while(1) {
                 try {
                     $session_messages = array_merge(
-                        [['role' => 'system', 'content' => 'You are a helpful AI assistant. Answer in English.']],
+                        [
+                            [
+                                'role' => 'system',
+                                'content' => 'You are a helpful AI assistant that books appointments.'
+                            ],
+                            [
+                                'role' => 'system',
+                                'content' => 'Answer in English.'
+                            ],
+                            [
+                                'role' => 'system',
+                                'content' => 'Separate the output with END_MESSAGE each section of the output separated in this way, will be a separate telegram message.'
+                            ],
+                        ],
                         $history_message_by_llm_session_id[$unanswered_prompt->llm_session_id] ?? [],
                         Tool::executeToolCalls($tool_calls),
                     );
+                    echo json_encode(['tool_calls' => $tool_calls, 'session_messages' => $session_messages]);
+                    echo "\n";
 
                     $payload = OpenRouter::buildChatPayload(
                         $model,
