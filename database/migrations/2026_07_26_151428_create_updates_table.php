@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('updates', function (Blueprint $table) {
             $table->id();
             $table->integer('telegram_update_id');
+            $table->string('source');
             $table->timestamps();
             $table->unique('telegram_update_id');
         });

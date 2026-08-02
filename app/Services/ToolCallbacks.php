@@ -37,16 +37,15 @@ class ToolCallbacks
         $dayEnd   = (new \DateTime("$date 17:00:00", $tz))->getTimestamp();
 
         $existing = DB::table('appointments')
-            ->where('start_time', '<', date('Y-m-d H:i:s', $dayEnd))
+            ->where('start_time', '<', $dayEnd)
             ->orderBy('start_time')
             ->get(['start_time', 'duration_minutes']);
 
         // Build busy intervals and clamp to working window
         $busy = [];
         foreach ($existing as $appt) {
-            $start = strtotime($appt->start_time);
+            $start = $appt->start_time;
             $end   = $start + $appt->duration_minutes * 60;
-            // Skip if entirely outside working hours
             if ($end <= $dayStart || $start >= $dayEnd) {
                 continue;
             }
@@ -83,12 +82,11 @@ class ToolCallbacks
         }
 
         // Return data, not JSON
-        return json_encode([
-            'success' => !empty($free),
-            'date'    => $date,
-            'slots'   => $free,
-            'message' => empty($free) ? "No available slots of {$duration_minutes} minutes on {$date}." : null,
-        ], JSON_PRETTY_PRINT) ?? 'Error: JSON encoding the response failed.';
+        if (empty($free)) {
+            return "No available slots of {$duration_minutes} minutes on {$date}.";
+        }
+
+        return json_encode($free) ?? 'Error: JSON encoding the response failed.';
     }
 
     /**
@@ -100,8 +98,10 @@ class ToolCallbacks
         string $title,
         string $customer_name
     ): string {
+        $start_timestamp = strtotime($start_time);
+
         $id = DB::table('appointments')->insertGetId([
-            'start_time'       => $start_time,
+            'start_time'       => $start_timestamp,
             'duration_minutes' => $duration_minutes,
             'title'            => $title,
             'customer_name'    => $customer_name,
@@ -114,10 +114,10 @@ class ToolCallbacks
             'message'     => 'Appointment booked successfully.',
             'appointment' => [
                 'id'           => $id,
-                'start_time'   => $start_time,
+                'start_time'   => $start_timestamp,
                 'title'        => $title,
                 'customer'     => $customer_name,
             ],
-        ], JSON_PRETTY_PRINT) ?? 'Error: JSON encoding the response failed.';
+        ]) ?? 'Error: JSON encoding the response failed.';
     }
 }

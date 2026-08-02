@@ -136,7 +136,7 @@ class TelegramService
         }
 
         $llm_answer_id = DB::table('llm_answers')
-            ->insert([
+            ->insertGetId([
                 'llm_answer_reasoning' => $reasoning_buffer,
                 'llm_answer' => $content_buffer,
                 'prompt_id' => $prompt_id,
@@ -145,6 +145,10 @@ class TelegramService
         $tool_calls = $gen->getReturn();
         $tool_call_inserts = [];
         foreach ($tool_calls as $tool_call) {
+            if (!isset($tool_call['function']['name'], $tool_call['id'])) {
+                continue;
+            }
+
             $tool_call_inserts[] = [
                 'name' => $tool_call['function']['name'],
                 'tool_call_id' => $tool_call['id'],
@@ -155,8 +159,9 @@ class TelegramService
             ];
         }
 
-        DB::table('tool_calls')
-            ->insert($tool_call_inserts);
+        if (!empty($tool_call_inserts)) {
+            DB::table('tool_calls')->insert($tool_call_inserts);
+        }
 
         return [
             'content_buffer' => $content_buffer,

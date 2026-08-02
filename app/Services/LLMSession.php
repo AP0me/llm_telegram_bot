@@ -22,10 +22,11 @@ class LLMSession
             ->whereIn('prompt_id', $promptIds)
             ->get(['llm_answers.id as llm_answer_id', 'prompt_id', 'llm_answer']);
 
-        $answer_by_prompt_id = [];
+        $answers_by_prompt_id = [];
         $llm_answer_ids = [];
         foreach ($answers as $answer) {
-            $answer_by_prompt_id[$answer->prompt_id] = $answer;
+            $answers_by_prompt_id[$answer->prompt_id][] = $answer;
+            $llm_answer_ids[] = $answer->llm_answer_id;
         }
 
         // 3. Fetch all tool responses linked to those prompts
@@ -53,22 +54,26 @@ class LLMSession
             ];
 
             // Check if there's an answer for this prompt
-            if (isset($answer_by_prompt_id[$prompt->prompt_id])) {
-                $answer = $answer_by_prompt_id[$prompt->prompt_id];
+            if (isset($answers_by_prompt_id[$prompt->prompt_id])) {
+                $answers = $answers_by_prompt_id[$prompt->prompt_id];
 
-                $messages[$sessionId][] = [
-                    'role'    => 'assistant',
-                    'content' => $answer->llm_answer ?? '',
-                ];
+                foreach ($answers as $answer) {
+                    $messages[$sessionId][] = [
+                        'role'    => 'assistant',
+                        'content' => $answer->llm_answer ?? '',
+                    ];
 
-                // Tool response messages (if any)
-                if (isset($tool_responses_by_answer_id[$answer->llm_answer_id])) {
-                    foreach ($tool_responses_by_answer_id[$answer->llm_answer_id] as $toolResponse) {
-                        $messages[$sessionId][] = [
-                            'role'         => 'tool',
-                            'tool_call_id' => $toolResponse->tool_call_id,
-                            'content'      => $toolResponse->response,
-                        ];
+                    // Tool response messages (if any)
+                    if (isset($tool_responses_by_answer_id[$answer->llm_answer_id])) {
+                        foreach ($tool_responses_by_answer_id[$answer->llm_answer_id] as $toolResponse) {
+                            if (isset($toolResponse->response)) {
+                                $messages[$sessionId][] = [
+                                    'role'         => 'tool',
+                                    'tool_call_id' => $toolResponse->tool_call_id,
+                                    'content'      => $toolResponse->response,
+                                ];
+                            }
+                        }
                     }
                 }
             }

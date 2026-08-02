@@ -35,20 +35,19 @@ class Tool
             ];
         }
 
-        self::massUpdateToolCalls($updates);
-        return $toolMessages;
-    }
-
-    protected static function massUpdateToolCalls(array $updates): void
-    {
         DB::transaction(function () use ($updates) {
+            echo "\n\n\n";
+            echo json_encode($updates);
+            echo "\n\n\n";
             foreach ($updates as $update) {
-                DB::table('tool_calls')->where('id', $update['id'])
+                DB::table('tool_calls')->where('tool_call_id', $update['id'])
                     ->update([
                         'response' => $update['response'],
                     ]);
             }
         });
+
+        return $toolMessages;
     }
 
     public static function list()
