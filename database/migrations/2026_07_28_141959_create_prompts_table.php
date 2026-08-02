@@ -14,9 +14,10 @@ return new class extends Migration
         Schema::create('prompts', function (Blueprint $table) {
             $table->id();
             $table->boolean('answered');
-            $table->integer('telegram_message_id');
+            $table->string('telegram_message_id');
             $table->integer('llm_session_id');
             $table->timestamps();
+            $table->unique('telegram_message_id');
         });
     }
 

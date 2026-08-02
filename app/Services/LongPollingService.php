@@ -302,7 +302,7 @@ class LongPollingService
 
             $offset = DB::table('updates')
                 ->where('source', 'whatsapp')
-                ->count('telegram_update_id')+1;
+                ->count('telegram_update_id');
 
             while (true) {
                 $timeout = 60; // ← True long-polling
@@ -402,7 +402,7 @@ class LongPollingService
                     'remote_chat_id'     => "$username-chat",
                     'username'           => $username,
                     'text'               => $text,
-                    'remote_message_id'  => $whatsapp_message_id,
+                    'remote_message_id'  => "whatsapp-message-$whatsapp_message_id",
                 ];
             }
         }

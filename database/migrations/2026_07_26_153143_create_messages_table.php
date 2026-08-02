@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('text');
             $table->integer('telegram_chat_id');
-            $table->integer('telegram_message_id');
+            $table->string('telegram_message_id');
             $table->timestamps();
 
             $table->unique('telegram_message_id');

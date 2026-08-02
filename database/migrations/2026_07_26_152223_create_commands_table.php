@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('commands', function (Blueprint $table) {
             $table->id();
-            $table->integer('telegram_message_id');
+            $table->string('telegram_message_id');
             $table->boolean('handled');
             $table->timestamps();
 

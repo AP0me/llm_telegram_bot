@@ -5,6 +5,7 @@ namespace App\Services;
 use GuzzleHttp\Client;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\DB;
+use Psr\Http\Message\ResponseInterface;
 use Telegram\Bot\Laravel\Facades\Telegram;
 
 class WhatsApp
@@ -49,7 +50,7 @@ class WhatsApp
         }
     }
 
-    public function sendMessage(array $params = []): PromiseInterface
+    public function sendMessage(array $params = []): ResponseInterface
     {
         $chat_id = $params['chat_id'] ?? 60;
         $text  = $params['text']  ?? 0;
@@ -71,19 +72,18 @@ class WhatsApp
             ]);
         }
 
+        echo 'SEND_MESSAGE'.$chat->username.$text.$source;
+
         try {
-            $promise = $this->client->getAsync($this->apiUrl . '/messages', [
-                'query'           => [
+            $promise = $this->client->post($this->apiUrl . '/send', [
+                'json'           => [
                     'token'   => $this->token,
                     'phone'  => $chat->username,
-                    'text' => $text,
-                ],
-                'timeout'         => 5,
-                'connect_timeout' => 10,
-                'headers'         => [
-                    'Accept'        => 'application/json',
+                    'message' => $text,
                 ],
             ]);
+
+            echo 'HAS_SENT'.$this->apiUrl;
 
             return $promise;
         } catch (\Throwable $e) {
