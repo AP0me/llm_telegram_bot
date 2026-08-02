@@ -21,17 +21,38 @@ Artisan::command('whatsapp_telegram', function () {
     $client = new Client([
         'base_uri' => 'http://localhost:8080',
         'timeout'  => 10.0,
+        'headers'  => [
+            'Accept'       => 'application/json',
+            'Content-Type' => 'application/json',
+        ],
     ]);
 
-    try {
-        $response = $client->request('GET', 'messages');
-        $statusCode = $response->getStatusCode();
-        $body = $response->getBody()->getContents();
-        $data = json_decode($body, true);
+    $payload = [
+        'phone'   => '209637404090446@lid',
+        'message' => 'Hello World',
+    ];
 
-        echo "Status: " . $statusCode . "\n";
-        echo "Repo Name: " . $data['name'] . "\n";
+    try {
+        $response = $client->post('send', [
+            'json' => $payload, // sends JSON-encoded body
+        ]);
+
+        $statusCode = $response->getStatusCode();
+        $body       = $response->getBody()->getContents();
+        $data       = json_decode($body, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $this->error('Invalid JSON response: ' . json_last_error_msg());
+            return;
+        }
+
+        $this->info("Status: {$statusCode}");
+        $this->info("Repo Name: " . ($data['name'] ?? 'N/A'));
     } catch (RequestException $e) {
-        echo "Error: " . $e->getMessage();
+        $this->error("Request failed: " . $e->getMessage());
+        if ($e->hasResponse()) {
+            $this->error("Response: " . $e->getResponse()->getBody()->getContents());
+        }
     }
-});
+})->describe('Send a WhatsApp/Telegram message via local API');
+

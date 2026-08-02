@@ -16,10 +16,10 @@ use Telegram\Bot\Laravel\Facades\Telegram;
 class LongPollingService
 {
     /** Shared non-blocking HTTP handler — drives ALL concurrent requests */
-    private static CurlMultiHandler $handler;
+    public static CurlMultiHandler $handler;
 
     /** Guzzle client wired to the shared handler */
-    private static Client $client;
+    public static Client $client;
 
     /**
      * Bootstrap the shared handler + client.
@@ -368,11 +368,8 @@ class LongPollingService
                     continue;
                 }
 
-                $username = $message['chat']['username']
-                    ?? $message['from']['username']
-                    ?? $message['from']['phone']
-                    ?? null;
-                $text = $message['text'] ?? null;
+                $username = $message['chat']['username'] ?? false;
+                $text = $message['text'] ?? false;
                 if (!$text || !$username) {
                     continue;
                 }
@@ -519,9 +516,11 @@ class LongPollingService
                 'handled' => false,
             ])->get();
 
+
         DB::transaction(function () use ($unhandled_commands) {
+            $whatsapp   = new WhatsApp(self::$client);
             foreach ($unhandled_commands as $unhandled_command) {
-                Telegram::sendMessage([
+                $whatsapp->sendMessage([
                     'chat_id' => $unhandled_command->telegram_chat_id,
                     'text' => TelegramService::handleCommand($unhandled_command),
                 ]);

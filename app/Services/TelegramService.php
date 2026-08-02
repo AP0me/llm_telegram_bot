@@ -91,6 +91,8 @@ class TelegramService
         $reasoning_buffer = '';
         $thinking_notification_sent = false;
 
+        $whatsapp = new WhatsApp(LongPollingService::$client);
+
         foreach ($gen as $chunk) {
             $text = $chunk['text'] ?? '';
             $chunk_type = $chunk['type'];
@@ -101,7 +103,7 @@ class TelegramService
 
             if ($chunk_type === 'reasoning') {
                 if(!$thinking_notification_sent) {
-                    Telegram::sendMessage([
+                    $whatsapp->sendMessage([
                         'chat_id' => $chatId,
                         'text'    => 'Thinking...',
                     ]);
@@ -119,7 +121,7 @@ class TelegramService
                 [$sentences, $buffer] = self::extractSentences($buffer);
 
                 foreach ($sentences as $sentence) {
-                    Telegram::sendMessage([
+                    $whatsapp->sendMessage([
                         'chat_id' => $chatId,
                         'text'    => trim($sentence),
                     ]);
@@ -129,7 +131,7 @@ class TelegramService
 
         // Flush whatever is left (a trailing partial sentence, if any)
         if (trim($buffer) !== '') {
-            Telegram::sendMessage([
+            $whatsapp->sendMessage([
                 'chat_id' => $chatId,
                 'text'    => trim($buffer),
             ]);
