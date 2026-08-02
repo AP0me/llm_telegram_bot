@@ -70,7 +70,7 @@ class LongPollingService
             //----------------------------------------------------------------
             foreach ($pendingPromises as $source => $promise) {
                 if ($promise->getState() === PromiseInterface::PENDING) {
-                    continue; // still waiting — will be checked next iteration
+                    continue;
                 }
 
                 $fiber = $fibers[$source];
@@ -78,33 +78,25 @@ class LongPollingService
                     continue;
                 }
 
-                // Resume the fiber with the settled promise.
-                // The fiber will call $promise->wait() (instant, non-blocking).
-                $fiber->resume($promise);
+                // Resume ONCE with the settled promise and CAPTURE the suspension event
+                $event = $fiber->resume($promise);
                 unset($pendingPromises[$source]);
-            }
 
-            //----------------------------------------------------------------
-            // 4. Collect any updates the fibers yielded while running
-            //----------------------------------------------------------------
-            foreach ($fibers as $source => $fiber) {
-                if (!$fiber->isSuspended()) {
-                    continue;
-                }
+                // Process this event (it might be data_ready, error, polling, etc.)
+                if (is_array($event) && isset($event['event'])) {
+                    self::handleFiberEvent($event, $source, $results, $pendingPromises, $fibers, $source);
 
-                // The fiber may have suspended with data or a new pending
-                // promise. We get the suspension event by resuming once
-                // (only if not already resumed in step 3).
-                //
-                // But we already resumed in step 3 if the promise was settled.
-                // Fibers that suspended with 'data_ready' or 'error' events
-                // are suspended WITHOUT a pending promise — we resume them
-                // with null to let them loop.
-                if (!isset($pendingPromises[$source])) {
-                    $event = $fiber->resume(null);
+                    // If the event included a new promise, store it
+                    // If it didn't include a new promise (like polling/error events),
+                    // we need to resume the fiber to let it loop and create a new request
+                    if (!isset($event['promise']) && !$fiber->isTerminated()) {
+                        // Resume to let fiber continue its loop
+                        $nextEvent = $fiber->resume(null);
 
-                    if (is_array($event) && isset($event['event'])) {
-                        self::handleFiberEvent($event, $source, $results, $pendingPromises, $fibers, $source);
+                        // If this next event has a promise, store it
+                        if (is_array($nextEvent) && isset($nextEvent['promise'])) {
+                            self::handleFiberEvent($nextEvent, $source, $results, $pendingPromises, $fibers, $source);
+                        }
                     }
                 }
             }
@@ -116,9 +108,7 @@ class LongPollingService
                 foreach ($results as $source => $updates) {
                     if (!empty($updates)) {
                         $messages = self::updatesToMessages($updates, $source);
-                        foreach ($messages as $msg) {
-                            self::handleIncomingMessage($msg, $source);
-                        }
+                        self::handleIncomingMessages($messages, $source);
                     }
                 }
                 $results = [];
@@ -217,11 +207,11 @@ class LongPollingService
     {
         return new Fiber(function () {
             $retryCount = 0;
-            $botToken   = config('telegram.bots.common.token');
+            $botToken   = config('telegram.bots.mybot.token');
 
-            $offset = (int) (DB::table('updates')
+            $offset = DB::table('updates')
                 ->where('source', 'telegram')
-                ->max('telegram_update_id') ?? 0) + 1;
+                ->count('telegram_update_id') + 1;
 
             while (true) {
                 $timeout = 60; // ← True long-polling, not 5s
@@ -250,10 +240,12 @@ class LongPollingService
                         'promise' => $promise,
                     ]);
 
+
                     // Parent resumed us — the promise is now settled.
                     // wait() is instant (non-blocking) since already resolved.
                     $response = $settledPromise->wait();
                     $body     = json_decode($response->getBody()->getContents(), true);
+
 
                     $retryCount = 0;
 
@@ -308,9 +300,9 @@ class LongPollingService
             $retryCount = 0;
             $whatsapp   = new WhatsApp(self::$client); // inject shared client
 
-            $offset = (int) (DB::table('updates')
+            $offset = DB::table('updates')
                 ->where('source', 'whatsapp')
-                ->max('whatsapp_update_id') ?? 0) + 1;
+                ->count('telegram_update_id')+1;
 
             while (true) {
                 $timeout = 60; // ← True long-polling
@@ -333,8 +325,7 @@ class LongPollingService
                     $retryCount = 0;
 
                     if (!empty($updates)) {
-                        $lastUpdate = end($updates);
-                        $offset     = ($lastUpdate['id'] ?? 0) + 1;
+                        $offset     = $offset + 1;
 
                         Fiber::suspend([
                             'event'   => 'whatsapp_data_ready',
@@ -394,28 +385,27 @@ class LongPollingService
                     'remote_message_id'  => $message['message_id'],
                 ];
             }
-        } elseif ($source === 'whatsapp') {
-            foreach ($updates as $update) {
-                $message = $update['messages'][0] ?? $update['message'] ?? false;
-                if (!$message) {
+        }
+        else if ($source === 'whatsapp') {
+            $whatsapp_messages = $updates['messages'] ?? [];
+            foreach ($whatsapp_messages as $whatsapp_message) {
+                if (!$whatsapp_message) {
                     continue;
                 }
 
-                $username = $message['from'] ?? $message['chatId'] ?? null;
-                $text = $message['body']
-                    ?? $message['text']
-                    ?? $message['caption']
-                    ?? null;
+                $username = $whatsapp_message['phone'] ?? false;
+                $text = $whatsapp_message['text'] ?? false;
+                $whatsapp_message_id = $whatsapp_message['id'];
                 if (!$text || !$username) {
                     continue;
                 }
 
                 $messages[] = [
-                    'remote_update_id'  => $update['id'] ?? null,
-                    'remote_chat_id'     => $message['chatId'] ?? null,
+                    'remote_update_id'   => "$username-update-$whatsapp_message_id",
+                    'remote_chat_id'     => "$username-chat",
                     'username'           => $username,
                     'text'               => $text,
-                    'remote_message_id'  => $message['id'] ?? null,
+                    'remote_message_id'  => $whatsapp_message_id,
                 ];
             }
         }
@@ -426,9 +416,8 @@ class LongPollingService
     /**
      * Handle a single incoming message (already uniform format).
      */
-    public static function handleIncomingMessage(array $message): void
+    public static function handleIncomingMessages(array $messages, string $source): void
     {
-        // Fetch open LLM sessions
         $llm_sessions = DB::table('llm_sessions')
             ->join('commands', 'llm_sessions.start_command_id', 'commands.id')
             ->join('messages', 'commands.telegram_message_id', 'messages.telegram_message_id')
@@ -445,51 +434,60 @@ class LongPollingService
             $llm_session_ids[] = $llm_session->id;
         }
 
-        // Prepare data from the single message
-        $remote_update_id  = $message['remote_update_id'];
-        $remote_chat_id    = $message['remote_chat_id'];
-        $username          = $message['username'];
-        $text              = $message['text'];
-        $remote_message_id = $message['remote_message_id'];
+        $updatesInsert = [];
+        $chatsInsert = [];
+        $messagesInsert = [];
+        $commandsInsert = [];
+        $promptsInsert = [];
 
-        $updatesInsert   = [];
-        $chatsInsert     = [];
-        $messagesInsert  = [];
-        $commandsInsert  = [];
-        $promptsInsert   = [];
+        foreach ($messages as $message) {
+            $remote_update_id  = $message['remote_update_id'];
+            $remote_chat_id    = $message['remote_chat_id'];
+            $username          = $message['username'];
+            $text              = $message['text'];
+            $remote_message_id = $message['remote_message_id'];
+            // ---
 
-        // Collect for 'updates' table
-        $updatesInsert[] = [
-            'telegram_update_id' => $remote_update_id,
-        ];
-
-        // Collect for 'chats' table
-        $chatsInsert[] = [
-            'username'           => $username,
-            'telegram_chat_id'   => $remote_chat_id,
-            'telegram_update_id' => $remote_update_id,
-        ];
-
-        // Collect for 'messages' table
-        $messagesInsert[] = [
-            'text'                => $text,
-            'telegram_chat_id'    => $remote_chat_id,
-            'telegram_message_id' => $remote_message_id,
-        ];
-
-        if (substr($text, 0, 1) === '/') {
-            $commandsInsert[] = [
-                'handled'             => false,
-                'telegram_message_id' => $remote_message_id,
+            $updatesInsert[] = [
+                'telegram_update_id' => $remote_update_id,
+                'source' => $source,
             ];
-        } else {
-            $open_llm_session = $llm_sessions_by_telegram_chat_id[$remote_chat_id] ?? false;
-            if ($open_llm_session) {
-                $promptsInsert[] = [
-                    'answered'            => false,
-                    'telegram_message_id' => $remote_message_id,
-                    'llm_session_id'      => $open_llm_session->id,
+
+            $telegram_chat_id = $remote_chat_id;
+            $telegram_message_id = $remote_message_id;
+
+            if (!isset($text) || !isset($username)) {
+                continue;
+            }
+
+            // Collect for 'chats' table
+            $chatsInsert[] = [
+                'username' => $username,
+                'telegram_chat_id' => $telegram_chat_id,
+                'telegram_update_id' => $remote_update_id,
+            ];
+
+            // Collect for 'messages' table
+            $messagesInsert[] = [
+                'text' => $text,
+                'telegram_chat_id' => $telegram_chat_id,
+                'telegram_message_id' => $telegram_message_id,
+            ];
+
+            if (substr($text, 0, 1) === '/') {
+                $commandsInsert[] = [
+                    'handled' => false,
+                    'telegram_message_id' => $telegram_message_id,
                 ];
+            } else {
+                $open_llm_session = $llm_sessions_by_telegram_chat_id[$telegram_chat_id] ?? false;
+                if ($open_llm_session) {
+                    $promptsInsert[] = [
+                        'answered' => false,
+                        'telegram_message_id' => $telegram_message_id,
+                        'llm_session_id' => $open_llm_session->id,
+                    ];
+                }
             }
         }
 
@@ -511,7 +509,6 @@ class LongPollingService
             }
         });
 
-        // Handle unhandled commands
         $unhandled_commands = DB::table('commands')
             ->join('messages', 'commands.telegram_message_id', 'messages.telegram_message_id')
             ->select([
@@ -526,7 +523,7 @@ class LongPollingService
             foreach ($unhandled_commands as $unhandled_command) {
                 Telegram::sendMessage([
                     'chat_id' => $unhandled_command->telegram_chat_id,
-                    'text'    => TelegramService::handleCommand($unhandled_command),
+                    'text' => TelegramService::handleCommand($unhandled_command),
                 ]);
             }
 
@@ -538,7 +535,6 @@ class LongPollingService
                 ]);
         });
 
-        // Handle unanswered prompts
         DB::transaction(function () use ($llm_session_ids) {
             $unanswered_prompts = DB::table('prompts')
                 ->join('messages', 'messages.telegram_message_id', 'prompts.telegram_message_id')
@@ -552,6 +548,7 @@ class LongPollingService
                 ->get();
 
             $answered_prompt_ids = [];
+            $history_message_by_llm_session_id = !empty($llm_session_ids) ? LLMSession::getMessagesOfOpenSessions($llm_session_ids) : [];
             foreach ($unanswered_prompts as $unanswered_prompt) {
                 $model = 'deepseek/deepseek-v4-flash';
                 $answered_prompt_ids[] = $unanswered_prompt->prompt_id;
@@ -559,37 +556,36 @@ class LongPollingService
                 $tool_calls = [];
                 while (1) {
                     try {
-                        $history_message_by_llm_session_id = !empty($llm_session_ids) ? LLMSession::getMessagesOfOpenSessions($llm_session_ids) : [];
                         $session_messages = array_merge(
                             [
                                 [
-                                    'role'    => 'system',
+                                    'role' => 'system',
                                     'content' => 'You are a helpful AI assistant that books appointments.'
                                 ],
                                 [
-                                    'role'    => 'system',
+                                    'role' => 'system',
                                     'content' => 'Answer in English.'
                                 ],
                                 [
-                                    'role'    => 'system',
+                                    'role' => 'system',
                                     'content' => 'If a tool call errors, stop the chain of tool calls and tell the user what went wrong.'
                                 ],
                                 [
-                                    'role'    => 'system',
+                                    'role' => 'system',
                                     'content' => 'Separate the output with END_MESSAGE each section of the output separated in this way, will be a separate telegram message.'
                                 ],
                             ],
                             $history_message_by_llm_session_id[$unanswered_prompt->llm_session_id] ?? [],
                             Tool::executeToolCalls($tool_calls),
                         );
-                        echo json_encode($session_messages);
+                        echo json_encode(['tool_calls' => $tool_calls, 'session_messages' => $session_messages]);
                         echo "\n";
 
                         $payload = OpenRouter::buildChatPayload(
                             $model,
                             $session_messages,
                             [
-                                'tools'       => Tool::list(),
+                                'tools' => Tool::list(),
                                 'tool_choice' => 'auto',
                             ]
                         );
@@ -598,9 +594,14 @@ class LongPollingService
                             OpenRouter::tokenGenerator($payload),
                             $unanswered_prompt
                         );
-                        $tool_calls     = $generated_info['tool_calls'];
+                        $tool_calls = $generated_info['tool_calls'];
                         $content_buffer = $generated_info['content_buffer'];
 
+                        // Ghost adding the llm response in order to avoid fetching from DB.
+                        $history_message_by_llm_session_id[$unanswered_prompt->llm_session_id][] = [
+                            'role'    => 'assistant',
+                            'content' => $content_buffer,
+                        ];
                         if (empty($tool_calls)) {
                             break;
                         }

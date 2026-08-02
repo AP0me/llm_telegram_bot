@@ -27,17 +27,23 @@ class WhatsApp
         $timeout = $params['timeout'] ?? 60;
         $offset  = $params['offset']  ?? 0;
 
-        return $this->client->getAsync($this->apiUrl . 'messages', [
-            'query'           => [
-                'token'   => $this->token,
-                'offset'  => $offset,
-                'timeout' => $timeout,
-            ],
-            'timeout'         => $timeout + 5,
-            'connect_timeout' => 10,
-            'headers'         => [
-                'Accept'        => 'application/json',
-            ],
-        ]);
+        try {
+            $promise = $this->client->getAsync($this->apiUrl . '/messages', [
+                'query'           => [
+                    'token'   => $this->token,
+                    'offset'  => $offset,
+                    'timeout' => $timeout,
+                ],
+                'timeout'         => $timeout + 5,
+                'connect_timeout' => 10,
+                'headers'         => [
+                    'Accept'        => 'application/json',
+                ],
+            ]);
+
+            return $promise;
+        } catch (\Throwable $e) {
+            dd($e);               // See exactly what went wrong
+        }
     }
 }
