@@ -300,11 +300,12 @@ class LongPollingService
             $retryCount = 0;
             $whatsapp   = new WhatsApp(self::$client); // inject shared client
 
-            $offset = DB::table('updates')
-                ->where('source', 'whatsapp')
-                ->count('telegram_update_id');
 
             while (true) {
+                $offset = DB::table('updates')
+                    ->where('source', 'whatsapp')
+                    ->count('telegram_update_id');
+
                 $timeout = 60; // ← True long-polling
 
                 try {
@@ -325,8 +326,6 @@ class LongPollingService
                     $retryCount = 0;
 
                     if (!empty($updates)) {
-                        $offset     = $offset + 1;
-
                         Fiber::suspend([
                             'event'   => 'whatsapp_data_ready',
                             'count'   => count($updates),
@@ -382,8 +381,7 @@ class LongPollingService
                     'remote_message_id'  => $message['message_id'],
                 ];
             }
-        }
-        else if ($source === 'whatsapp') {
+        } else if ($source === 'whatsapp') {
             $whatsapp_messages = $updates['messages'] ?? [];
             foreach ($whatsapp_messages as $whatsapp_message) {
                 if (!$whatsapp_message) {

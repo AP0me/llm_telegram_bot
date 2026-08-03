@@ -30,6 +30,7 @@ class WhatsApp
         $timeout = $params['timeout'] ?? 60;
         $offset  = $params['offset']  ?? 0;
 
+        echo 'offset '.json_encode($offset)."\n";
         try {
             $promise = $this->client->getAsync($this->apiUrl . '/messages', [
                 'query'           => [
