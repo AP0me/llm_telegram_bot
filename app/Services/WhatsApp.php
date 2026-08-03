@@ -50,7 +50,7 @@ class WhatsApp
         }
     }
 
-    public function sendMessage(array $params = []): ResponseInterface
+    public function sendMessage(array $params = [])
     {
         $chat_id = $params['chat_id'] ?? 60;
         $text  = $params['text']  ?? 0;
@@ -70,6 +70,7 @@ class WhatsApp
                 'chat_id' => $chat_id,
                 'text'    => $text,
             ]);
+            return;
         }
 
         echo 'SEND_MESSAGE'.$chat->username.$text.$source;

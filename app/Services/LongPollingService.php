@@ -547,7 +547,6 @@ class LongPollingService
                 ->get();
 
             $answered_prompt_ids = [];
-            $history_message_by_llm_session_id = !empty($llm_session_ids) ? LLMSession::getMessagesOfOpenSessions($llm_session_ids) : [];
             foreach ($unanswered_prompts as $unanswered_prompt) {
                 $model = 'deepseek/deepseek-v4-flash';
                 $answered_prompt_ids[] = $unanswered_prompt->prompt_id;
@@ -555,6 +554,7 @@ class LongPollingService
                 $tool_calls = [];
                 while (1) {
                     try {
+                        $history_message_by_llm_session_id = !empty($llm_session_ids) ? LLMSession::getMessagesOfOpenSessions($llm_session_ids) : [];
                         $session_messages = array_merge(
                             [
                                 [
